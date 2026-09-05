@@ -42,7 +42,7 @@ public class FarmerTransactionController {
                 request.getFarmerName(), request.getTransactionDate(), clientId);
         FarmerTransaction saved = farmerTransactionService.saveTransaction(
                 request.getFarmerName(), request.getTransactionDate(),
-                request.getExcessDebitAmt(), request.getDebitAmt(),
+                request.getExcessDebitAmt(), request.getDebitAmt(), request.getPaymentMode(),
                 clientId, clientUsername);
         return ResponseEntity.ok(ApiResponse.success("Transaction saved successfully", saved));
     }

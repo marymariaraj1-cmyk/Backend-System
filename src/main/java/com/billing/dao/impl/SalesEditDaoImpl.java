@@ -24,7 +24,7 @@ public class SalesEditDaoImpl implements SalesEditDao {
     private static final Logger logger = LoggerFactory.getLogger(SalesEditDaoImpl.class);
 
     private static final String FETCH_SALES_SQL =
-            "SELECT SALES_ID, FLOWER_TYPE, TOTAL_WEIGHT, PERKG_RATE, PRICE, CUST_NAME, BUYER_ID "
+            "SELECT SALES_ID, FLOWER_TYPE, TOTAL_WEIGHT, PERKG_RATE, PRICE, CUST_NAME, BUYER_ID, FLOWER_ID, BAG_COUNT "
                     + "FROM BLOOMBUDDY_SALES "
                     + "WHERE CLIENT_ID = ? AND FARMER_ID = ? AND SALES_DATE = ? "
                     + "ORDER BY SALES_ID";
@@ -35,12 +35,12 @@ public class SalesEditDaoImpl implements SalesEditDao {
                     + "WHERE CLIENT_ID = ? AND FARMER_ID = ? AND SALES_DATE = ? LIMIT 1";
 
     private static final String FIND_SALES_ROW_SQL =
-            "SELECT SALES_ID, FARMER_ID, FARMER_NAME, SALES_DATE, FLOWER_TYPE, TOTAL_WEIGHT, PERKG_RATE, PRICE, BUYER_ID, CUST_NAME "
+            "SELECT SALES_ID, FARMER_ID, FARMER_NAME, SALES_DATE, FLOWER_TYPE, TOTAL_WEIGHT, PERKG_RATE, PRICE, BUYER_ID, CUST_NAME, FLOWER_ID, BAG_COUNT "
                     + "FROM BLOOMBUDDY_SALES "
                     + "WHERE SALES_ID = ? AND CLIENT_ID = ? LIMIT 1";
 
     private static final String UPDATE_SALES_ROW_SQL =
-            "UPDATE BLOOMBUDDY_SALES SET FLOWER_TYPE = ?, TOTAL_WEIGHT = ?, PERKG_RATE = ?, PRICE = ? "
+            "UPDATE BLOOMBUDDY_SALES SET FLOWER_TYPE = ?, TOTAL_WEIGHT = ?, PERKG_RATE = ?, PRICE = ?, FLOWER_ID = ?, BAG_COUNT = ? "
                     + "WHERE SALES_ID = ? AND CLIENT_ID = ?";
 
     private static final String ADJUST_SUMMARY_SALES_AMOUNTS_SQL =
@@ -89,6 +89,9 @@ public class SalesEditDaoImpl implements SalesEditDao {
                     row.put("price", rs.getBigDecimal("PRICE"));
                     row.put("customerName", rs.getString("CUST_NAME"));
                     row.put("buyerId", rs.getString("BUYER_ID"));
+                    row.put("flowerId", rs.getString("FLOWER_ID"));
+                    int bag = rs.getInt("BAG_COUNT");
+                    row.put("bagCount", rs.wasNull() ? null : bag);
                     rows.add(row);
                 }
             }
@@ -146,6 +149,9 @@ public class SalesEditDaoImpl implements SalesEditDao {
                     row.put("price", rs.getBigDecimal("PRICE"));
                     row.put("buyerId", rs.getString("BUYER_ID"));
                     row.put("customerName", rs.getString("CUST_NAME"));
+                    row.put("flowerId", rs.getString("FLOWER_ID"));
+                    int bag = rs.getInt("BAG_COUNT");
+                    row.put("bagCount", rs.wasNull() ? null : bag);
                     return row;
                 }
             }
@@ -159,16 +165,23 @@ public class SalesEditDaoImpl implements SalesEditDao {
     @Override
     public void updateSalesRow(Long salesId, Long clientId, String flowerType,
                                BigDecimal totalWeight, BigDecimal perKgRate, BigDecimal price,
+                               String flowerId, Integer bagCount,
                                Connection conn) {
-        logger.info("updateSalesRow: salesId={}, clientId={}, flowerType={}, weight={}, rate={}, amount={}",
-                salesId, clientId, flowerType, totalWeight, perKgRate, price);
+        logger.info("updateSalesRow: salesId={}, clientId={}, flowerType={}, weight={}, rate={}, amount={}, bagCount={}",
+                salesId, clientId, flowerType, totalWeight, perKgRate, price, bagCount);
         try (PreparedStatement ps = conn.prepareStatement(UPDATE_SALES_ROW_SQL)) {
             ps.setString(1, flowerType);
             ps.setBigDecimal(2, totalWeight);
             ps.setBigDecimal(3, perKgRate);
             ps.setBigDecimal(4, price);
-            ps.setLong(5, salesId);
-            ps.setLong(6, clientId);
+            ps.setString(5, flowerId);
+            if (bagCount != null) {
+                ps.setInt(6, bagCount);
+            } else {
+                ps.setNull(6, java.sql.Types.INTEGER);
+            }
+            ps.setLong(7, salesId);
+            ps.setLong(8, clientId);
             int updated = ps.executeUpdate();
             if (updated == 0) {
                 throw new RuntimeException("No record found with SALES_ID=" + salesId);

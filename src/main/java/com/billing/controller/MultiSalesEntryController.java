@@ -56,10 +56,17 @@ public class MultiSalesEntryController {
                 line.setPrice(dto.getPrice());
                 line.setAmount(dto.getAmount());
                 line.setCustomerName(dto.getCustomerName());
+                line.setBagCount(dto.getBagCount());
                 lines.add(line);
             }
         }
-        List<Sales> saved = multiSalesEntryService.saveMultiSales(lines, clientId, clientUsername);
+        String debitAmount = request.getDebitAmount();
+        List<Sales> saved;
+        if (debitAmount != null && !debitAmount.trim().isEmpty()) {
+            saved = multiSalesEntryService.saveMultiSales(lines, debitAmount, clientId, clientUsername);
+        } else {
+            saved = multiSalesEntryService.saveMultiSales(lines, clientId, clientUsername);
+        }
         return ResponseEntity.ok(ApiResponse.success("Multiple sales saved successfully", saved));
     }
 }

@@ -63,9 +63,9 @@ public class BuyerTransactionServiceImpl implements BuyerTransactionService {
     }
 
     @Override
-    public BuyerTransaction saveTransaction(String buyerName, String transactionDate, String cashPaidAmt, String disAmt,
+    public BuyerTransaction saveTransaction(String buyerName, String transactionDate, String cashPaidAmt, String disAmt, String paymentMode,
                                             Long clientId, String clientUsername) {
-        logger.info("saveTransaction: buyer={}, date={}, cashPaidAmt={}, disAmt={}", buyerName, transactionDate, cashPaidAmt, disAmt);
+        logger.info("saveTransaction: buyer={}, date={}, cashPaidAmt={}, disAmt={}, paymentMode={}", buyerName, transactionDate, cashPaidAmt, disAmt, paymentMode);
 
         if (buyerName == null || buyerName.trim().isEmpty()) {
             throw new IllegalArgumentException("Buyer name is required");
@@ -103,6 +103,11 @@ public class BuyerTransactionServiceImpl implements BuyerTransactionService {
             }
         }
 
+        String normalizedMode = paymentMode != null ? paymentMode.trim().toUpperCase() : "C";
+        if (!"C".equals(normalizedMode) && !"U".equals(normalizedMode)) {
+            normalizedMode = "C";
+        }
+
         String buyerId = buyerMasterDao.findIdByNameAndClientId(clientId, buyerName.trim());
         if (buyerId == null) {
             throw new IllegalArgumentException("Buyer '" + buyerName + "' not found in Buyer Master.");
@@ -123,6 +128,7 @@ public class BuyerTransactionServiceImpl implements BuyerTransactionService {
             txn.setTransactionDate(date);
             txn.setCashPaidAmt(amountReceived != null ? amountReceived : BigDecimal.ZERO);
             txn.setDisAmt(discount != null ? discount : BigDecimal.ZERO);
+            txn.setPaymentMode(normalizedMode);
             buyerTransactionDao.insert(txn, conn);
 
             if (amountReceived != null && amountReceived.compareTo(BigDecimal.ZERO) > 0) {

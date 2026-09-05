@@ -9,6 +9,8 @@ public interface MultiSalesEntryService {
 
     List<Sales> saveMultiSales(List<MultiSalesLine> lines, Long clientId, String clientUsername);
 
+    List<Sales> saveMultiSales(List<MultiSalesLine> lines, String debitAmountStr, Long clientId, String clientUsername);
+
     List<Map<String, Object>> getTodayEntries(Long clientId);
 
     Map<String, List<String>> getMasterNames(Long clientId);
@@ -20,6 +22,7 @@ public interface MultiSalesEntryService {
         private String price;
         private String amount;
         private String customerName;
+        private Integer bagCount;
 
         public String getFarmerName() { return farmerName; }
         public void setFarmerName(String farmerName) { this.farmerName = farmerName; }
@@ -33,5 +36,7 @@ public interface MultiSalesEntryService {
         public void setAmount(String amount) { this.amount = amount; }
         public String getCustomerName() { return customerName; }
         public void setCustomerName(String customerName) { this.customerName = customerName; }
+        public Integer getBagCount() { return bagCount; }
+        public void setBagCount(Integer bagCount) { this.bagCount = bagCount; }
     }
 }

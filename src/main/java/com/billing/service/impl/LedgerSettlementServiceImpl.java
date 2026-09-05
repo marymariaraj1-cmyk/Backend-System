@@ -55,6 +55,22 @@ public class LedgerSettlementServiceImpl implements LedgerSettlementService {
     }
 
     @Override
+    public void inactivateFarmerLedger(Long clientId, String farmerId, LocalDate writtenDate, Connection conn) {
+        List<FarmerLedger> rows = farmerLedgerDao.findAll(clientId, farmerId, conn);
+        if (rows.isEmpty()) {
+            return;
+        }
+        BigDecimal obValue = openingBalanceConfigDao.findFarmerOpeningBalance(clientId, farmerId, conn);
+        LocalDate obDate = openingBalanceConfigDao.findFarmerOpeningBalanceDate(clientId, farmerId, conn);
+        SettleResult result = findLatestFarmerZeroDate(rows, writtenDate, obValue, obDate);
+        LocalDate inactivationDate = writtenDate.minusDays(1);
+        farmerLedgerDao.deactivateLedgerRows(clientId, farmerId, inactivationDate, conn);
+        farmerLedgerDao.mergeDeactivatedRows(clientId, farmerId, inactivationDate, conn);
+        stampFarmerOpenings(clientId, farmerId, result, conn);
+        openingBalanceConfigDao.clearFarmerOpeningBalance(clientId, farmerId, conn);
+    }
+
+    @Override
     public void settleBuyerIfClosed(Long clientId, String buyerId, LocalDate writtenDate, Connection conn) {
         List<BuyerLedger> rows = buyerLedgerDao.findAll(clientId, buyerId, conn);
         if (rows.isEmpty()) {
@@ -73,7 +89,7 @@ public class LedgerSettlementServiceImpl implements LedgerSettlementService {
 
     private void stampFarmerOpenings(Long clientId, String farmerId, SettleResult result, Connection conn) {
         for (Map.Entry<LocalDate, BigDecimal> entry : result.openings.entrySet()) {
-            if (!entry.getKey().isAfter(result.zeroDate)) {
+            if (result.zeroDate == null || !entry.getKey().isAfter(result.zeroDate)) {
                 farmerLedgerDao.updateOpeningBalance(clientId, farmerId, entry.getKey(), entry.getValue(), conn);
             }
         }

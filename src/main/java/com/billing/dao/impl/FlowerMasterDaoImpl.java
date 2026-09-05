@@ -235,6 +235,28 @@ public class FlowerMasterDaoImpl implements FlowerMasterDao {
         return names;
     }
 
+    private static final String SELECT_ID_BY_NAME_SQL =
+            "SELECT FLOWER_ID FROM BLOOMBUDDY_FLOWER_MASTER WHERE CLIENT_ID = ? AND FLOWER_NAME = ? LIMIT 1";
+
+    @Override
+    public String findIdByNameAndClientId(Long clientId, String flowerName) {
+        logger.info("findIdByNameAndClientId: clientId={}, flowerName={}", clientId, flowerName);
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement ps = conn.prepareStatement(SELECT_ID_BY_NAME_SQL)) {
+            ps.setLong(1, clientId);
+            ps.setString(2, flowerName);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getString("FLOWER_ID");
+                }
+            }
+        } catch (SQLException e) {
+            logger.error("findIdByNameAndClientId: SQL exception", e);
+            throw new RuntimeException("Failed to fetch flower id by name", e);
+        }
+        return null;
+    }
+
     private FlowerMaster mapRow(ResultSet rs) throws SQLException {
         FlowerMaster f = new FlowerMaster();
         f.setFlowerId(rs.getString("FLOWER_ID"));

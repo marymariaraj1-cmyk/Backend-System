@@ -5,13 +5,16 @@ import com.billing.dao.BuyerMasterDao;
 import com.billing.dao.ClientSlotSequenceDao;
 import com.billing.dao.FarmerLedgerDao;
 import com.billing.dao.FarmerMasterDao;
+import com.billing.dao.FarmerTransactionDao;
 import com.billing.dao.FlowerMasterDao;
 import com.billing.dao.SalesDao;
 import com.billing.dao.SalesTotalSummaryDao;
 import com.billing.entity.BuyerLedger;
 import com.billing.entity.FarmerLedger;
+import com.billing.entity.FarmerTransaction;
 import com.billing.entity.Sales;
 import com.billing.entity.SalesTotalSummary;
+import com.billing.service.BagCountConfigService;
 import com.billing.service.LedgerSettlementService;
 import com.billing.service.SalesService;
 import com.billing.util.RoundOffUtil;
@@ -53,7 +56,9 @@ public class SalesServiceImpl implements SalesService {
     private final BuyerLedgerDao buyerLedgerDao;
     private final ClientSlotSequenceDao clientSlotSequenceDao;
     private final SalesTotalSummaryDao salesTotalSummaryDao;
+    private final FarmerTransactionDao farmerTransactionDao;
     private final LedgerSettlementService ledgerSettlementService;
+    private final BagCountConfigService bagCountConfigService;
 
     @Autowired
     public SalesServiceImpl(DataSource dataSource,
@@ -65,7 +70,9 @@ public class SalesServiceImpl implements SalesService {
                             BuyerLedgerDao buyerLedgerDao,
                             ClientSlotSequenceDao clientSlotSequenceDao,
                             SalesTotalSummaryDao salesTotalSummaryDao,
-                            LedgerSettlementService ledgerSettlementService) {
+                            FarmerTransactionDao farmerTransactionDao,
+                            LedgerSettlementService ledgerSettlementService,
+                            BagCountConfigService bagCountConfigService) {
         this.dataSource = dataSource;
         this.salesDao = salesDao;
         this.farmerMasterDao = farmerMasterDao;
@@ -75,7 +82,9 @@ public class SalesServiceImpl implements SalesService {
         this.buyerLedgerDao = buyerLedgerDao;
         this.clientSlotSequenceDao = clientSlotSequenceDao;
         this.salesTotalSummaryDao = salesTotalSummaryDao;
+        this.farmerTransactionDao = farmerTransactionDao;
         this.ledgerSettlementService = ledgerSettlementService;
+        this.bagCountConfigService = bagCountConfigService;
     }
 
     @Override
@@ -133,6 +142,9 @@ public class SalesServiceImpl implements SalesService {
                 throw new IllegalArgumentException("Flower '" + line.getFlowerType() + "' not found in Flower Master. Please add it there first.");
             }
 
+            String flowerId = flowerMasterDao.findIdByNameAndClientId(clientId, line.getFlowerType().trim());
+            Integer bagCount = line.getBagCount();
+
             BigDecimal weight = BigDecimal.ZERO;
             BigDecimal rate = BigDecimal.ZERO;
             if (line.getTotalWeight() != null && !line.getTotalWeight().trim().isEmpty()) {
@@ -150,6 +162,8 @@ public class SalesServiceImpl implements SalesService {
             sales.setFarmerName(farmerName.trim());
             sales.setSalesDate(date);
             sales.setFlowerType(line.getFlowerType().trim());
+            sales.setFlowerId(flowerId);
+            sales.setBagCount(bagCount);
             sales.setTotalWeight(weight);
             sales.setPrice(amount);
             sales.setBuyerId(buyerId);
@@ -158,6 +172,8 @@ public class SalesServiceImpl implements SalesService {
             sales.setDebitCreditFlag(flag);
             entities.add(sales);
         }
+
+        validateBagCounts(clientId, date, entities);
 
         Connection conn = null;
         try {
@@ -220,6 +236,24 @@ public class SalesServiceImpl implements SalesService {
                 logger.debug("saveSales: buyer ledger inserted/updated for buyer={}, amount={}, isDirectPayment={}", customerName, rowAmount, isDirectPayment);
             }
 
+            // === Task 1: Always insert into BLOOMBUDDY_FARMER_TRANSACTION when Debit Amount is used ===
+            if (debitAmount != null && debitAmount.compareTo(BigDecimal.ZERO) > 0) {
+                FarmerTransaction auditTxn = new FarmerTransaction();
+                auditTxn.setClientId(clientId);
+                auditTxn.setClientUsername(clientUsername);
+                auditTxn.setFarmerId(farmerId);
+                auditTxn.setFarmerName(farmerName.trim());
+                auditTxn.setTransactionDate(date);
+                auditTxn.setCashPaidAmt(BigDecimal.ZERO);
+                auditTxn.setExcessDebitAmt(BigDecimal.ZERO);
+                auditTxn.setDebAmt(debitAmount);
+                auditTxn.setPaymentMode("C");
+                farmerTransactionDao.insert(auditTxn, conn);
+                logger.info("saveSales: Task1 - inserted farmer transaction audit DEB_AMT={} for farmerId={}, date={}", debitAmount, farmerId, date);
+            }
+
+            // === Task 2 & 3: Handle BLOOMBUDDY_SALES_TOTALSUMMARY DEBIT_AMT ===
+            Map<String, Object> existingSummary = salesTotalSummaryDao.findRow(clientId, farmerId, date);
             SalesTotalSummary summary = new SalesTotalSummary();
             summary.setClientId(clientId);
             summary.setClientUsername(clientUsername);
@@ -229,8 +263,23 @@ public class SalesServiceImpl implements SalesService {
             summary.setTotalSalesAmt(totalSalesAmt);
             summary.setCommissionAmt(commissionAmt);
             summary.setTotalNetAmt(netAmount);
-            summary.setDebitAmt(debitAmount);
-            summary.setFinalAmt(finalTotal);
+            if (existingSummary == null) {
+                // Task 2: First-ever summary row - seed DEBIT_AMT from full SUM of BLOOMBUDDY_FARMER_TRANSACTION (includes Task1 insert)
+                BigDecimal totalDebitFromTxn = farmerTransactionDao.sumDebAmt(clientId, farmerId, date, conn);
+                if (totalDebitFromTxn == null) {
+                    totalDebitFromTxn = BigDecimal.ZERO;
+                }
+                BigDecimal seededDebit = RoundOffUtil.round(totalDebitFromTxn);
+                BigDecimal seededFinal = netAmount.subtract(seededDebit);
+                summary.setDebitAmt(seededDebit);
+                summary.setFinalAmt(RoundOffUtil.round(seededFinal));
+                logger.info("saveSales: Task2 - first summary row, seeded DEBIT_AMT={} (SUM from farmer_transaction), FINAL_AMT={}", seededDebit, summary.getFinalAmt());
+            } else {
+                // Task 3: Existing summary row - delta flow (add this sale's debit)
+                summary.setDebitAmt(debitAmount);
+                summary.setFinalAmt(finalTotal);
+                logger.info("saveSales: Task3 - existing summary, delta DEBIT_AMT={} will be added to existing", debitAmount);
+            }
             salesTotalSummaryDao.upsert(summary, conn);
             logger.info("saveSales: sales total summary upserted for farmerId={}, date={}", farmerId, date);
 
@@ -383,6 +432,39 @@ public class SalesServiceImpl implements SalesService {
         }
         if (new BigDecimal(line.getAmount().trim()).compareTo(BigDecimal.ZERO) <= 0) {
             throw new IllegalArgumentException("Amount must be greater than zero");
+        }
+    }
+
+    private void validateBagCounts(Long clientId, LocalDate date, List<Sales> entities) {
+        Map<String, Integer> bagByFlower = new LinkedHashMap<>();
+        for (Sales sales : entities) {
+            if (sales.getBagCount() == null || sales.getBagCount() <= 0) {
+                continue;
+            }
+            bagByFlower.merge(sales.getFlowerId(), sales.getBagCount(), Integer::sum);
+        }
+        for (Map.Entry<String, Integer> entry : bagByFlower.entrySet()) {
+            String flowerId = entry.getKey();
+            if (flowerId == null) {
+                continue;
+            }
+            int sessionTotal = entry.getValue();
+            Map<String, Object> config = bagCountConfigService.getConfig(clientId, flowerId, date);
+            if (config == null) {
+                continue;
+            }
+            String bagCheck = config.get("bagCheck") == null ? "" : String.valueOf(config.get("bagCheck"));
+            if (!"E".equalsIgnoreCase(bagCheck)) {
+                continue;
+            }
+            int configuredLimit = config.get("bagCount") == null ? 0 : ((Number) config.get("bagCount")).intValue();
+            int savedTotal = bagCountConfigService.getSavedBagTotal(clientId, flowerId, date);
+            if (savedTotal + sessionTotal > configuredLimit) {
+                String flowerName = config.get("flowerName") == null ? flowerId : String.valueOf(config.get("flowerName"));
+                throw new IllegalArgumentException(
+                        "Bag count exceeded for flower '" + flowerName + "'. Allowed " + configuredLimit
+                                + " but total is " + (savedTotal + sessionTotal) + ". Please increase the bag count in the configuration.");
+            }
         }
     }
 

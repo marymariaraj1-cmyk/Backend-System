@@ -13,6 +13,7 @@ public class BuyerTransaction {
     private LocalDate transactionDate;
     private BigDecimal cashPaidAmt;
     private BigDecimal disAmt;
+    private String paymentMode;
 
     public BuyerTransaction() {
     }
@@ -79,5 +80,13 @@ public class BuyerTransaction {
 
     public void setDisAmt(BigDecimal disAmt) {
         this.disAmt = disAmt;
+    }
+
+    public String getPaymentMode() {
+        return paymentMode;
+    }
+
+    public void setPaymentMode(String paymentMode) {
+        this.paymentMode = paymentMode;
     }
 }

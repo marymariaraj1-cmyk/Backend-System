@@ -43,7 +43,7 @@ public class BuyerTransactionController {
                 request.getBuyerName(), request.getTransactionDate(), clientId);
         BuyerTransaction saved = buyerTransactionService.saveTransaction(
                 request.getBuyerName(), request.getTransactionDate(),
-                request.getAmountReceived(), request.getDiscountAmt(),
+                request.getAmountReceived(), request.getDiscountAmt(), request.getPaymentMode(),
                 clientId, clientUsername);
         return ResponseEntity.ok(ApiResponse.success("Transaction saved successfully", saved));
     }

@@ -25,6 +25,7 @@ public interface SalesService {
         private String price;
         private String amount;
         private String customerName;
+        private Integer bagCount;
 
         public String getFlowerType() {
             return flowerType;
@@ -64,6 +65,14 @@ public interface SalesService {
 
         public void setCustomerName(String customerName) {
             this.customerName = customerName;
+        }
+
+        public Integer getBagCount() {
+            return bagCount;
+        }
+
+        public void setBagCount(Integer bagCount) {
+            this.bagCount = bagCount;
         }
     }
 }

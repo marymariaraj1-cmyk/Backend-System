@@ -58,6 +58,7 @@ public class SalesController {
                 line.setPrice(dto.getPrice());
                 line.setAmount(dto.getAmount());
                 line.setCustomerName(dto.getCustomerName());
+                line.setBagCount(dto.getBagCount());
                 lines.add(line);
             }
         }

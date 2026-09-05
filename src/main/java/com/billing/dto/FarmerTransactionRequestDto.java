@@ -6,6 +6,7 @@ public class FarmerTransactionRequestDto {
     private String transactionDate;
     private String excessDebitAmt;
     private String debitAmt;
+    private String paymentMode;
 
     public String getFarmerName() {
         return farmerName;
@@ -37,5 +38,13 @@ public class FarmerTransactionRequestDto {
 
     public void setDebitAmt(String debitAmt) {
         this.debitAmt = debitAmt;
+    }
+
+    public String getPaymentMode() {
+        return paymentMode;
+    }
+
+    public void setPaymentMode(String paymentMode) {
+        this.paymentMode = paymentMode;
     }
 }

@@ -5,13 +5,16 @@ import com.billing.dao.BuyerMasterDao;
 import com.billing.dao.ClientSlotSequenceDao;
 import com.billing.dao.FarmerLedgerDao;
 import com.billing.dao.FarmerMasterDao;
+import com.billing.dao.FarmerTransactionDao;
 import com.billing.dao.FlowerMasterDao;
 import com.billing.dao.MultiSalesEntryDao;
 import com.billing.dao.SalesTotalSummaryDao;
+import com.billing.entity.FarmerTransaction;
 import com.billing.entity.BuyerLedger;
 import com.billing.entity.FarmerLedger;
 import com.billing.entity.Sales;
 import com.billing.entity.SalesTotalSummary;
+import com.billing.service.BagCountConfigService;
 import com.billing.service.LedgerSettlementService;
 import com.billing.service.MultiSalesEntryService;
 import com.billing.util.RoundOffUtil;
@@ -54,7 +57,9 @@ public class MultiSalesEntryServiceImpl implements MultiSalesEntryService {
     private final BuyerLedgerDao buyerLedgerDao;
     private final ClientSlotSequenceDao clientSlotSequenceDao;
     private final SalesTotalSummaryDao salesTotalSummaryDao;
+    private final FarmerTransactionDao farmerTransactionDao;
     private final LedgerSettlementService ledgerSettlementService;
+    private final BagCountConfigService bagCountConfigService;
 
     @Autowired
     public MultiSalesEntryServiceImpl(DataSource dataSource,
@@ -66,7 +71,9 @@ public class MultiSalesEntryServiceImpl implements MultiSalesEntryService {
                                        BuyerLedgerDao buyerLedgerDao,
                                        ClientSlotSequenceDao clientSlotSequenceDao,
                                        SalesTotalSummaryDao salesTotalSummaryDao,
-                                       LedgerSettlementService ledgerSettlementService) {
+                                       FarmerTransactionDao farmerTransactionDao,
+                                       LedgerSettlementService ledgerSettlementService,
+                                       BagCountConfigService bagCountConfigService) {
         this.dataSource = dataSource;
         this.multiSalesEntryDao = multiSalesEntryDao;
         this.farmerMasterDao = farmerMasterDao;
@@ -76,12 +83,19 @@ public class MultiSalesEntryServiceImpl implements MultiSalesEntryService {
         this.buyerLedgerDao = buyerLedgerDao;
         this.clientSlotSequenceDao = clientSlotSequenceDao;
         this.salesTotalSummaryDao = salesTotalSummaryDao;
+        this.farmerTransactionDao = farmerTransactionDao;
         this.ledgerSettlementService = ledgerSettlementService;
+        this.bagCountConfigService = bagCountConfigService;
     }
 
     @Override
     public List<Sales> saveMultiSales(List<MultiSalesLine> lines, Long clientId, String clientUsername) {
-        logger.info("saveMultiSales: entering, lineCount={}, clientId={}", lines == null ? 0 : lines.size(), clientId);
+        return saveMultiSales(lines, "0", clientId, clientUsername);
+    }
+
+    @Override
+    public List<Sales> saveMultiSales(List<MultiSalesLine> lines, String debitAmountStr, Long clientId, String clientUsername) {
+        logger.info("saveMultiSales: entering, lineCount={}, debitAmount={}, clientId={}", lines == null ? 0 : lines.size(), debitAmountStr, clientId);
 
         if (lines == null || lines.isEmpty()) {
             throw new IllegalArgumentException("At least one sales row is required");
@@ -114,6 +128,8 @@ public class MultiSalesEntryServiceImpl implements MultiSalesEntryService {
                 throw new IllegalArgumentException("Flower '" + line.getFlowerType() + "' not found in Flower Master. Please add it there first.");
             }
 
+            String flowerId = flowerMasterDao.findIdByNameAndClientId(clientId, line.getFlowerType().trim());
+
             BigDecimal weight = BigDecimal.ZERO;
             BigDecimal rate = BigDecimal.ZERO;
             if (line.getTotalWeight() != null && !line.getTotalWeight().trim().isEmpty()) {
@@ -131,6 +147,8 @@ public class MultiSalesEntryServiceImpl implements MultiSalesEntryService {
             sales.setFarmerName(line.getFarmerName().trim());
             sales.setSalesDate(date);
             sales.setFlowerType(line.getFlowerType().trim());
+            sales.setFlowerId(flowerId);
+            sales.setBagCount(line.getBagCount());
             sales.setTotalWeight(weight);
             sales.setPrice(amount);
             sales.setBuyerId(buyerId);
@@ -140,6 +158,8 @@ public class MultiSalesEntryServiceImpl implements MultiSalesEntryService {
             entities.add(sales);
         }
 
+        validateBagCounts(clientId, date, entities);
+
         BigDecimal grandTotal = entities.stream()
                 .map(Sales::getPrice)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
@@ -147,6 +167,17 @@ public class MultiSalesEntryServiceImpl implements MultiSalesEntryService {
         BigDecimal commission = RoundOffUtil.round(grandTotal.multiply(new BigDecimal("0.10")));
         BigDecimal netAmount = RoundOffUtil.round(grandTotal.subtract(commission));
         BigDecimal finalTotal = netAmount;
+
+        // Parse global debit for multi-sales (Task1)
+        BigDecimal globalDebit = BigDecimal.ZERO;
+        if (debitAmountStr != null && !debitAmountStr.trim().isEmpty()) {
+            try {
+                globalDebit = RoundOffUtil.round(new BigDecimal(debitAmountStr.trim()));
+                if (globalDebit.compareTo(BigDecimal.ZERO) < 0) globalDebit = BigDecimal.ZERO;
+            } catch (NumberFormatException e) {
+                globalDebit = BigDecimal.ZERO;
+            }
+        }
 
         Connection conn = null;
         try {
@@ -166,6 +197,10 @@ public class MultiSalesEntryServiceImpl implements MultiSalesEntryService {
             for (Sales s : saved) {
                 byFarmer.computeIfAbsent(s.getFarmerId(), k -> new ArrayList<>()).add(s);
             }
+
+            BigDecimal remainingDebit = globalDebit;
+            int farmerIdx = 0;
+            int farmerCount = byFarmer.size();
 
             for (Map.Entry<String, List<Sales>> entry : byFarmer.entrySet()) {
                 String farmerId = entry.getKey();
@@ -206,6 +241,38 @@ public class MultiSalesEntryServiceImpl implements MultiSalesEntryService {
                             farmerTotal.multiply(commission).divide(grandTotal, 2, RoundingMode.HALF_UP));
                 }
 
+                // === Task 1: Distribute global debit per farmer proportionally (Task1 insert before Task2 SUM) ===
+                BigDecimal farmerDebit;
+                if (globalDebit.compareTo(BigDecimal.ZERO) > 0 && grandTotal.compareTo(BigDecimal.ZERO) > 0) {
+                    if (farmerIdx == farmerCount - 1) {
+                        farmerDebit = RoundOffUtil.round(remainingDebit);
+                    } else {
+                        BigDecimal proportion = farmerTotal.divide(grandTotal, 10, RoundingMode.HALF_UP);
+                        farmerDebit = RoundOffUtil.round(globalDebit.multiply(proportion));
+                        remainingDebit = remainingDebit.subtract(farmerDebit);
+                    }
+                } else {
+                    farmerDebit = BigDecimal.ZERO;
+                }
+                farmerIdx++;
+
+                if (farmerDebit != null && farmerDebit.compareTo(BigDecimal.ZERO) > 0) {
+                    FarmerTransaction auditTxn = new FarmerTransaction();
+                    auditTxn.setClientId(clientId);
+                    auditTxn.setClientUsername(clientUsername);
+                    auditTxn.setFarmerId(farmerId);
+                    auditTxn.setFarmerName(farmerName);
+                    auditTxn.setTransactionDate(date);
+                    auditTxn.setCashPaidAmt(BigDecimal.ZERO);
+                    auditTxn.setExcessDebitAmt(BigDecimal.ZERO);
+                    auditTxn.setDebAmt(farmerDebit);
+                    auditTxn.setPaymentMode("C");
+                    farmerTransactionDao.insert(auditTxn, conn);
+                    logger.info("saveMultiSales: Task1 - inserted farmer transaction audit DEB_AMT={} for farmerId={}, date={}", farmerDebit, farmerId, date);
+                }
+
+                // === Task 2 & 3: Handle BLOOMBUDDY_SALES_TOTALSUMMARY DEBIT_AMT ===
+                Map<String, Object> existingSummary = salesTotalSummaryDao.findRow(clientId, farmerId, date);
                 SalesTotalSummary summary = new SalesTotalSummary();
                 summary.setClientId(clientId);
                 summary.setClientUsername(clientUsername);
@@ -215,8 +282,23 @@ public class MultiSalesEntryServiceImpl implements MultiSalesEntryService {
                 summary.setTotalSalesAmt(farmerTotal);
                 summary.setCommissionAmt(farmerCommission);
                 summary.setTotalNetAmt(farmerCredit);
-                summary.setDebitAmt(BigDecimal.ZERO);
-                summary.setFinalAmt(farmerCredit);
+                if (existingSummary == null) {
+                    // Task 2: First-ever summary row - seed DEBIT from SUM of farmer transactions (includes Task1 if inserted)
+                    BigDecimal totalDebitFromTxn = farmerTransactionDao.sumDebAmt(clientId, farmerId, date, conn);
+                    if (totalDebitFromTxn == null) {
+                        totalDebitFromTxn = BigDecimal.ZERO;
+                    }
+                    BigDecimal seededDebit = RoundOffUtil.round(totalDebitFromTxn);
+                    BigDecimal seededFinal = farmerCredit.subtract(seededDebit);
+                    summary.setDebitAmt(seededDebit);
+                    summary.setFinalAmt(RoundOffUtil.round(seededFinal));
+                    logger.info("saveMultiSales: Task2 - first summary row for farmerId={}, seeded DEBIT_AMT={} (SUM), FINAL={}", farmerId, seededDebit, summary.getFinalAmt());
+                } else {
+                    // Task 3: Existing summary - delta (add this batch's debit, currently 0)
+                    summary.setDebitAmt(farmerDebit);
+                    summary.setFinalAmt(farmerCredit);
+                    logger.info("saveMultiSales: Task3 - existing summary for farmerId={}, delta DEBIT_AMT={}", farmerId, farmerDebit);
+                }
                 salesTotalSummaryDao.upsert(summary, conn);
             }
 
@@ -331,6 +413,39 @@ public class MultiSalesEntryServiceImpl implements MultiSalesEntryService {
         }
         if (new BigDecimal(line.getAmount().trim()).compareTo(BigDecimal.ZERO) <= 0) {
             throw new IllegalArgumentException("Amount must be greater than zero");
+        }
+    }
+
+    private void validateBagCounts(Long clientId, LocalDate date, List<Sales> entities) {
+        Map<String, Integer> bagByFlower = new LinkedHashMap<>();
+        for (Sales sales : entities) {
+            if (sales.getBagCount() == null || sales.getBagCount() <= 0) {
+                continue;
+            }
+            bagByFlower.merge(sales.getFlowerId(), sales.getBagCount(), Integer::sum);
+        }
+        for (Map.Entry<String, Integer> entry : bagByFlower.entrySet()) {
+            String flowerId = entry.getKey();
+            if (flowerId == null) {
+                continue;
+            }
+            int sessionTotal = entry.getValue();
+            Map<String, Object> config = bagCountConfigService.getConfig(clientId, flowerId, date);
+            if (config == null) {
+                continue;
+            }
+            String bagCheck = config.get("bagCheck") == null ? "" : String.valueOf(config.get("bagCheck"));
+            if (!"E".equalsIgnoreCase(bagCheck)) {
+                continue;
+            }
+            int configuredLimit = config.get("bagCount") == null ? 0 : ((Number) config.get("bagCount")).intValue();
+            int savedTotal = bagCountConfigService.getSavedBagTotal(clientId, flowerId, date);
+            if (savedTotal + sessionTotal > configuredLimit) {
+                String flowerName = config.get("flowerName") == null ? flowerId : String.valueOf(config.get("flowerName"));
+                throw new IllegalArgumentException(
+                        "Bag count exceeded for flower '" + flowerName + "'. Allowed " + configuredLimit
+                                + " but total is " + (savedTotal + sessionTotal) + ". Please increase the bag count in the configuration.");
+            }
         }
     }
 }

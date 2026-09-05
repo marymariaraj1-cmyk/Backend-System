@@ -10,6 +10,7 @@ public class SalesLineDto {
     private String price;
     private String amount;
     private String customerName;
+    private Integer bagCount;
 
     public Long getSalesId() {
         return salesId;
@@ -73,5 +74,13 @@ public class SalesLineDto {
 
     public void setCustomerName(String customerName) {
         this.customerName = customerName;
+    }
+
+    public Integer getBagCount() {
+        return bagCount;
+    }
+
+    public void setBagCount(Integer bagCount) {
+        this.bagCount = bagCount;
     }
 }

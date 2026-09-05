@@ -38,4 +38,10 @@ public interface FarmerLedgerDao {
 
     void setDebitAmt(Long clientId, String clientUsername, String farmerId, String farmerName,
                      LocalDate date, BigDecimal amount, Connection conn);
+
+    void setSettlementCreditAmt(Long clientId, String clientUsername, String farmerId, String farmerName,
+                                LocalDate date, BigDecimal amount, Connection conn);
+
+    void setSettlementDebitAmt(Long clientId, String clientUsername, String farmerId, String farmerName,
+                               LocalDate date, BigDecimal amount, Connection conn);
 }

@@ -24,14 +24,14 @@ public class FarmerLedgerReportDaoImpl implements FarmerLedgerReportDao {
     private static final Logger logger = LoggerFactory.getLogger(FarmerLedgerReportDaoImpl.class);
 
     private static final String FIND_BY_DATE_RANGE =
-            "SELECT SALES_DATE, CREDIT_AMT, DEBIT_AMT, LEDGER_ACTIVE, OPENING_BALANCE " +
+            "SELECT SALES_DATE, CREDIT_AMT, DEBIT_AMT, LEDGER_ACTIVE, OPENING_BALANCE, SALES_IDS " +
             "FROM BLOOMBUDDY_FARMER_LEDGER " +
             "WHERE CLIENT_ID = ? AND FARMER_ID = ? " +
             "AND SALES_DATE BETWEEN ? AND ? " +
             "ORDER BY SALES_DATE ASC, FARMER_LEDGER_ID ASC";
 
     private static final String FIND_ALL =
-            "SELECT SALES_DATE, CREDIT_AMT, DEBIT_AMT, LEDGER_ACTIVE, OPENING_BALANCE " +
+            "SELECT SALES_DATE, CREDIT_AMT, DEBIT_AMT, LEDGER_ACTIVE, OPENING_BALANCE, SALES_IDS " +
             "FROM BLOOMBUDDY_FARMER_LEDGER " +
             "WHERE CLIENT_ID = ? AND FARMER_ID = ? " +
             "ORDER BY SALES_DATE ASC, FARMER_LEDGER_ID ASC";
@@ -85,6 +85,7 @@ public class FarmerLedgerReportDaoImpl implements FarmerLedgerReportDao {
                     row.put("debitAmt", RoundOffUtil.round(rs.getBigDecimal("DEBIT_AMT")));
                     row.put("ledgerActive", rs.getString("LEDGER_ACTIVE"));
                     row.put("openingBalanceStored", rs.getBigDecimal("OPENING_BALANCE"));
+                    row.put("salesIds", rs.getString("SALES_IDS"));
                     results.add(row);
                 }
             }
@@ -111,6 +112,7 @@ public class FarmerLedgerReportDaoImpl implements FarmerLedgerReportDao {
                     row.put("debitAmt", RoundOffUtil.round(rs.getBigDecimal("DEBIT_AMT")));
                     row.put("ledgerActive", rs.getString("LEDGER_ACTIVE"));
                     row.put("openingBalanceStored", rs.getBigDecimal("OPENING_BALANCE"));
+                    row.put("salesIds", rs.getString("SALES_IDS"));
                     results.add(row);
                 }
             }

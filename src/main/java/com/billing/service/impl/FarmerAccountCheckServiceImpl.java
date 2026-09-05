@@ -2,8 +2,10 @@ package com.billing.service.impl;
 
 import com.billing.dao.FarmerLedgerDao;
 import com.billing.dao.FarmerLedgerReportDao;
+import com.billing.dao.FarmerTransactionDao;
 import com.billing.dao.OpeningBalanceConfigDao;
 import com.billing.entity.FarmerLedger;
+import com.billing.entity.FarmerTransaction;
 import com.billing.service.FarmerAccountCheckService;
 import com.billing.service.LedgerSettlementService;
 import com.billing.util.RoundOffUtil;
@@ -31,17 +33,20 @@ public class FarmerAccountCheckServiceImpl implements FarmerAccountCheckService 
     private final FarmerLedgerReportDao farmerLedgerReportDao;
     private final OpeningBalanceConfigDao openingBalanceConfigDao;
     private final LedgerSettlementService ledgerSettlementService;
+    private final FarmerTransactionDao farmerTransactionDao;
 
     public FarmerAccountCheckServiceImpl(DataSource dataSource,
                                           FarmerLedgerDao farmerLedgerDao,
                                           FarmerLedgerReportDao farmerLedgerReportDao,
                                           OpeningBalanceConfigDao openingBalanceConfigDao,
-                                          LedgerSettlementService ledgerSettlementService) {
+                                          LedgerSettlementService ledgerSettlementService,
+                                          FarmerTransactionDao farmerTransactionDao) {
         this.dataSource = dataSource;
         this.farmerLedgerDao = farmerLedgerDao;
         this.farmerLedgerReportDao = farmerLedgerReportDao;
         this.openingBalanceConfigDao = openingBalanceConfigDao;
         this.ledgerSettlementService = ledgerSettlementService;
+        this.farmerTransactionDao = farmerTransactionDao;
     }
 
     @Override
@@ -60,6 +65,51 @@ public class FarmerAccountCheckServiceImpl implements FarmerAccountCheckService 
             }
         }
         return activeRows;
+    }
+
+    @Override
+    public BigDecimal getLastActiveClosingBalance(Long clientId, String farmerId) {
+        logger.info("getLastActiveClosingBalance: clientId={}, farmerId={}", clientId, farmerId);
+        LocalDate currentMonthStart = LocalDate.now().withDayOfMonth(1);
+        Connection conn = null;
+        try {
+            conn = dataSource.getConnection();
+            List<FarmerLedger> allRows = farmerLedgerDao.findAll(clientId, farmerId, conn);
+            BigDecimal obValue = openingBalanceConfigDao.findFarmerOpeningBalance(clientId, farmerId, conn);
+            LocalDate obDate = openingBalanceConfigDao.findFarmerOpeningBalanceDate(clientId, farmerId, conn);
+
+            BigDecimal activeRunning = ZERO;
+            boolean haveActive = false;
+            BigDecimal running = ZERO;
+
+            for (FarmerLedger row : allRows) {
+                LocalDate date = row.getSalesDate();
+                boolean active = isActive(row.getLedgerActive());
+                BigDecimal opening;
+                if (active) {
+                    opening = haveActive ? activeRunning : ZERO;
+                    if (obValue != null && obDate != null && obDate.equals(date)) {
+                        opening = opening.add(obValue);
+                    }
+                } else {
+                    opening = running;
+                }
+                BigDecimal credit = row.getCreditAmt() == null ? ZERO : row.getCreditAmt();
+                BigDecimal debit = row.getDebitAmt() == null ? ZERO : row.getDebitAmt();
+                BigDecimal closing = RoundOffUtil.round(opening.add(credit).subtract(debit));
+                running = closing;
+                if (active && date.isBefore(currentMonthStart)) {
+                    activeRunning = closing;
+                    haveActive = true;
+                }
+            }
+            return haveActive ? activeRunning : null;
+        } catch (Exception e) {
+            logger.error("getLastActiveClosingBalance: error", e);
+            throw new RuntimeException("Failed to fetch closing balance", e);
+        } finally {
+            closeConn(conn);
+        }
     }
 
     @Override
@@ -133,15 +183,29 @@ public class FarmerAccountCheckServiceImpl implements FarmerAccountCheckService 
     public void commitDebitWrite(Long clientId, String clientUsername, String farmerId,
                                   String farmerName, BigDecimal finalAmount) {
         logger.info("commitDebitWrite: clientId={}, farmerId={}, finalAmount={}", clientId, farmerId, finalAmount);
+        if (finalAmount == null || finalAmount.signum() == 0) {
+            logger.warn("commitDebitWrite: final amount is zero or empty, skipping ledger update");
+            return;
+        }
         LocalDate today = LocalDate.now();
         Connection conn = null;
         try {
             conn = dataSource.getConnection();
             conn.setAutoCommit(false);
 
-            farmerLedgerDao.setDebitAmt(clientId, clientUsername, farmerId, farmerName, today, finalAmount, conn);
+            deactivateSameDayRealRow(clientId, farmerId, today, conn);
 
-            ledgerSettlementService.settleFarmerIfClosed(clientId, farmerId, today, conn);
+            if (finalAmount.signum() < 0) {
+                BigDecimal amount = finalAmount.abs();
+                farmerLedgerDao.setSettlementDebitAmt(clientId, clientUsername, farmerId, farmerName, today, amount, conn);
+                insertAccountCheckTransaction(clientId, clientUsername, farmerId, farmerName, today, ZERO, amount, conn);
+            } else if (finalAmount.signum() > 0) {
+                BigDecimal amount = finalAmount.abs();
+                farmerLedgerDao.setSettlementCreditAmt(clientId, clientUsername, farmerId, farmerName, today, amount, conn);
+                insertAccountCheckTransaction(clientId, clientUsername, farmerId, farmerName, today, amount, ZERO, conn);
+            }
+
+            ledgerSettlementService.inactivateFarmerLedger(clientId, farmerId, today, conn);
 
             conn.commit();
             logger.info("commitDebitWrite: committed for farmerId={}, date={}", farmerId, today);
@@ -161,6 +225,39 @@ public class FarmerAccountCheckServiceImpl implements FarmerAccountCheckService 
         } finally {
             closeConn(conn);
         }
+    }
+
+    private void deactivateSameDayRealRow(Long clientId, String farmerId, LocalDate today, Connection conn) {
+        FarmerLedger todayRow = farmerLedgerDao.findRow(clientId, farmerId, today, conn);
+        if (todayRow == null || !isActive(todayRow.getLedgerActive())) {
+            return;
+        }
+        String existingSalesIds = todayRow.getSalesIds();
+        boolean isSettlement = existingSalesIds != null && "0".equals(existingSalesIds.trim());
+        if (isSettlement) {
+            return;
+        }
+        logger.info("deactivateSameDayRealRow: deactivating same-day real ledger row for farmerId={}, date={}", farmerId, today);
+        farmerLedgerDao.deactivateLedgerRows(clientId, farmerId, today, conn);
+        farmerLedgerDao.mergeDeactivatedRows(clientId, farmerId, today, conn);
+    }
+
+    private void insertAccountCheckTransaction(Long clientId, String clientUsername, String farmerId, String farmerName,
+                                           LocalDate transactionDate, BigDecimal cashPaidAmt, BigDecimal excessDebitAmt,
+                                           Connection conn) {
+        FarmerTransaction txn = new FarmerTransaction();
+        txn.setClientId(clientId);
+        txn.setClientUsername(clientUsername);
+        txn.setFarmerId(farmerId);
+        txn.setFarmerName(farmerName);
+        txn.setTransactionDate(transactionDate);
+        txn.setCashPaidAmt(cashPaidAmt);
+        txn.setExcessDebitAmt(excessDebitAmt);
+        txn.setDebAmt(ZERO);
+        txn.setPaymentMode("C");
+        farmerTransactionDao.insert(txn, conn);
+        logger.info("insertAccountCheckTransaction: farmer transaction inserted for farmerId={}, date={}, cashPaidAmt={}, excessDebitAmt={}",
+                farmerId, transactionDate, cashPaidAmt, excessDebitAmt);
     }
 
     private boolean isActive(String ledgerActive) {

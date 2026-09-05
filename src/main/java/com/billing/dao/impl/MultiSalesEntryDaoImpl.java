@@ -20,13 +20,13 @@ public class MultiSalesEntryDaoImpl implements MultiSalesEntryDao {
 
     private static final String SELECT_BY_DATE_SQL =
             "SELECT SALES_ID, CLIENT_ID, CLIENT_USERNAME, FARMER_ID, FARMER_NAME, SALES_DATE, "
-                    + "FLOWER_TYPE, TOTAL_WEIGHT, PRICE, BUYER_ID, PERKG_RATE, CUST_NAME, DEBIT_CREDIT_FLAG, SALE_SLOT_ID "
+                    + "FLOWER_TYPE, TOTAL_WEIGHT, PRICE, BUYER_ID, PERKG_RATE, CUST_NAME, DEBIT_CREDIT_FLAG, SALE_SLOT_ID, FLOWER_ID, BAG_COUNT "
                     + "FROM BLOOMBUDDY_SALES WHERE CLIENT_ID = ? AND SALES_DATE = ? ORDER BY SALES_ID ASC";
 
     private static final String INSERT_SQL =
             "INSERT INTO BLOOMBUDDY_SALES (CLIENT_ID, CLIENT_USERNAME, FARMER_ID, FARMER_NAME, SALES_DATE, "
-                    + "FLOWER_TYPE, TOTAL_WEIGHT, PRICE, BUYER_ID, PERKG_RATE, CUST_NAME, DEBIT_CREDIT_FLAG, SALE_SLOT_ID) "
-                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                    + "FLOWER_TYPE, TOTAL_WEIGHT, PRICE, BUYER_ID, PERKG_RATE, CUST_NAME, DEBIT_CREDIT_FLAG, SALE_SLOT_ID, FLOWER_ID, BAG_COUNT) "
+                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
     private final DataSource dataSource;
 
@@ -78,6 +78,12 @@ public class MultiSalesEntryDaoImpl implements MultiSalesEntryDao {
                 ps.setString(11, sales.getCustName());
                 ps.setString(12, sales.getDebitCreditFlag());
                 ps.setString(13, sales.getSaleSlotId());
+                ps.setString(14, sales.getFlowerId());
+                if (sales.getBagCount() != null) {
+                    ps.setInt(15, sales.getBagCount());
+                } else {
+                    ps.setNull(15, java.sql.Types.INTEGER);
+                }
                 ps.addBatch();
             }
             ps.executeBatch();
@@ -115,6 +121,9 @@ public class MultiSalesEntryDaoImpl implements MultiSalesEntryDao {
         sales.setCustName(rs.getString("CUST_NAME"));
         sales.setDebitCreditFlag(rs.getString("DEBIT_CREDIT_FLAG"));
         sales.setSaleSlotId(rs.getString("SALE_SLOT_ID"));
+        sales.setFlowerId(rs.getString("FLOWER_ID"));
+        int bagCount = rs.getInt("BAG_COUNT");
+        sales.setBagCount(rs.wasNull() ? null : bagCount);
         return sales;
     }
 }

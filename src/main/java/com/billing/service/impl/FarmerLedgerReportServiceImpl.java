@@ -88,6 +88,7 @@ public class FarmerLedgerReportServiceImpl implements FarmerLedgerReportService 
                 out.put("creditAmount", RoundOffUtil.round(debit));
                 out.put("closingBalance", closing);
                 out.put("ledgerActive", row.get("ledgerActive"));
+                out.put("salesIds", row.get("salesIds"));
                 result.add(out);
             }
             running = closing;

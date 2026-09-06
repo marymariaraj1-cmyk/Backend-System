@@ -28,11 +28,11 @@ public class BuyerTransactionDaoImpl implements BuyerTransactionDao {
     }
 
     private static final String INSERT_SQL =
-            "INSERT INTO BLOOMBUDDY_BUYER_TRANSACTION (CLIENT_ID, CLIENT_USERNAME, BUYER_ID, BUYER_NAME, TRANSACTION_DATE, CASH_PAID_AMT, DIS_AMT) "
-                    + "VALUES (?, ?, ?, ?, ?, ?, ?)";
+            "INSERT INTO BLOOMBUDDY_BUYER_TRANSACTION (CLIENT_ID, CLIENT_USERNAME, BUYER_ID, BUYER_NAME, TRANSACTION_DATE, CASH_PAID_AMT, DIS_AMT, PAYMENT_MODE) "
+                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
 
     private static final String SELECT_BY_BUYER_DATE_SQL =
-            "SELECT BUYER_TRANSACTION_ID, CLIENT_ID, CLIENT_USERNAME, BUYER_ID, BUYER_NAME, TRANSACTION_DATE, CASH_PAID_AMT, DIS_AMT "
+            "SELECT BUYER_TRANSACTION_ID, CLIENT_ID, CLIENT_USERNAME, BUYER_ID, BUYER_NAME, TRANSACTION_DATE, CASH_PAID_AMT, DIS_AMT, PAYMENT_MODE "
                     + "FROM BLOOMBUDDY_BUYER_TRANSACTION "
                     + "WHERE CLIENT_ID = ? AND BUYER_ID = ? AND TRANSACTION_DATE BETWEEN ? AND ? "
                     + "ORDER BY TRANSACTION_DATE DESC, BUYER_TRANSACTION_ID DESC";
@@ -48,6 +48,7 @@ public class BuyerTransactionDaoImpl implements BuyerTransactionDao {
             ps.setDate(5, Date.valueOf(txn.getTransactionDate()));
             ps.setBigDecimal(6, txn.getCashPaidAmt());
             ps.setBigDecimal(7, txn.getDisAmt());
+            ps.setString(8, txn.getPaymentMode() != null ? txn.getPaymentMode() : "C");
             ps.executeUpdate();
             try (ResultSet keys = ps.getGeneratedKeys()) {
                 if (keys.next()) {
@@ -95,6 +96,8 @@ public class BuyerTransactionDaoImpl implements BuyerTransactionDao {
         txn.setTransactionDate(rs.getDate("TRANSACTION_DATE").toLocalDate());
         txn.setCashPaidAmt(rs.getBigDecimal("CASH_PAID_AMT"));
         txn.setDisAmt(rs.getBigDecimal("DIS_AMT"));
+        try { txn.setPaymentMode(rs.getString("PAYMENT_MODE")); } catch (SQLException ignored) { txn.setPaymentMode("C"); }
+        if (txn.getPaymentMode() == null) txn.setPaymentMode("C");
         return txn;
     }
 }

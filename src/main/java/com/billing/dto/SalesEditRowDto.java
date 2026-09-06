@@ -7,6 +7,7 @@ public class SalesEditRowDto {
     private String totalWeight;
     private String price;
     private String amount;
+    private Integer bagCount;
 
     public Long getSalesId() {
         return salesId;
@@ -46,5 +47,13 @@ public class SalesEditRowDto {
 
     public void setAmount(String amount) {
         this.amount = amount;
+    }
+
+    public Integer getBagCount() {
+        return bagCount;
+    }
+
+    public void setBagCount(Integer bagCount) {
+        this.bagCount = bagCount;
     }
 }

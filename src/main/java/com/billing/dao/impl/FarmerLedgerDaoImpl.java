@@ -366,6 +366,60 @@ public class FarmerLedgerDaoImpl implements FarmerLedgerDao {
         }
     }
 
+    private static final String SET_SETTLEMENT_CREDIT_SQL =
+            "INSERT INTO BLOOMBUDDY_FARMER_LEDGER (CLIENT_ID, CLIENT_USERNAME, FARMER_ID, FARMER_NAME, SALES_DATE, DEBIT_AMT, CREDIT_AMT, SALES_IDS) "
+                    + "VALUES (?, ?, ?, ?, ?, 0, ?, '0') "
+                    + "ON DUPLICATE KEY UPDATE "
+                    + "CREDIT_AMT = VALUES(CREDIT_AMT), "
+                    + "DEBIT_AMT = 0, "
+                    + "SALES_IDS = '0'";
+
+    private static final String SET_SETTLEMENT_DEBIT_SQL =
+            "INSERT INTO BLOOMBUDDY_FARMER_LEDGER (CLIENT_ID, CLIENT_USERNAME, FARMER_ID, FARMER_NAME, SALES_DATE, DEBIT_AMT, CREDIT_AMT, SALES_IDS) "
+                    + "VALUES (?, ?, ?, ?, ?, ?, 0, '0') "
+                    + "ON DUPLICATE KEY UPDATE "
+                    + "DEBIT_AMT = VALUES(DEBIT_AMT), "
+                    + "CREDIT_AMT = 0, "
+                    + "SALES_IDS = '0'";
+
+    @Override
+    public void setSettlementCreditAmt(Long clientId, String clientUsername, String farmerId, String farmerName,
+                                       LocalDate date, BigDecimal amount, Connection conn) {
+        logger.info("setSettlementCreditAmt: clientId={}, farmerId={}, date={}, amount={}", clientId, farmerId, date, amount);
+        try (PreparedStatement ps = conn.prepareStatement(SET_SETTLEMENT_CREDIT_SQL)) {
+            ps.setLong(1, clientId);
+            ps.setString(2, clientUsername);
+            ps.setString(3, farmerId);
+            ps.setString(4, farmerName);
+            ps.setDate(5, java.sql.Date.valueOf(date));
+            ps.setBigDecimal(6, amount);
+            ps.executeUpdate();
+            logger.info("setSettlementCreditAmt: farmer account check credit set for farmerId={}, date={}", farmerId, date);
+        } catch (SQLException e) {
+            logger.error("setSettlementCreditAmt: SQL exception while setting farmer account check credit", e);
+            throw new RuntimeException("Failed to set farmer account check credit", e);
+        }
+    }
+
+    @Override
+    public void setSettlementDebitAmt(Long clientId, String clientUsername, String farmerId, String farmerName,
+                                      LocalDate date, BigDecimal amount, Connection conn) {
+        logger.info("setSettlementDebitAmt: clientId={}, farmerId={}, date={}, amount={}", clientId, farmerId, date, amount);
+        try (PreparedStatement ps = conn.prepareStatement(SET_SETTLEMENT_DEBIT_SQL)) {
+            ps.setLong(1, clientId);
+            ps.setString(2, clientUsername);
+            ps.setString(3, farmerId);
+            ps.setString(4, farmerName);
+            ps.setDate(5, java.sql.Date.valueOf(date));
+            ps.setBigDecimal(6, amount);
+            ps.executeUpdate();
+            logger.info("setSettlementDebitAmt: farmer account check debit set for farmerId={}, date={}", farmerId, date);
+        } catch (SQLException e) {
+            logger.error("setSettlementDebitAmt: SQL exception while setting farmer account check debit", e);
+            throw new RuntimeException("Failed to set farmer account check debit", e);
+        }
+    }
+
     @Override
     public String findSalesIds(Long clientId, String farmerId, LocalDate date, String wantedActive) {
         logger.info("findSalesIds: clientId={}, farmerId={}, date={}, wantedActive={}", clientId, farmerId, date, wantedActive);

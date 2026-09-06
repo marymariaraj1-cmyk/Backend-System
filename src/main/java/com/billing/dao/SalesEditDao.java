@@ -16,6 +16,7 @@ public interface SalesEditDao {
 
     void updateSalesRow(Long salesId, Long clientId, String flowerType,
                         BigDecimal totalWeight, BigDecimal perKgRate, BigDecimal price,
+                        String flowerId, Integer bagCount,
                         Connection conn);
 
     void adjustSummarySalesAmounts(Long clientId, String farmerId, LocalDate salesDate,

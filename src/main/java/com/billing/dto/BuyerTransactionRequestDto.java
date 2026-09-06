@@ -6,6 +6,7 @@ public class BuyerTransactionRequestDto {
     private String transactionDate;
     private String amountReceived;
     private String discountAmt;
+    private String paymentMode;
 
     public String getBuyerName() {
         return buyerName;
@@ -37,5 +38,13 @@ public class BuyerTransactionRequestDto {
 
     public void setDiscountAmt(String discountAmt) {
         this.discountAmt = discountAmt;
+    }
+
+    public String getPaymentMode() {
+        return paymentMode;
+    }
+
+    public void setPaymentMode(String paymentMode) {
+        this.paymentMode = paymentMode;
     }
 }

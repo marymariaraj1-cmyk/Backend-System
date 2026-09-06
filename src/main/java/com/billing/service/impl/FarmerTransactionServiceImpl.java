@@ -56,8 +56,8 @@ public class FarmerTransactionServiceImpl implements FarmerTransactionService {
 
     @Override
     public FarmerTransaction saveTransaction(String farmerName, String transactionDate, String excessDebitAmt,
-                                             String debitAmt, Long clientId, String clientUsername) {
-        logger.info("saveTransaction: farmer={}, date={}, excessDebitAmt={}, debitAmt={}", farmerName, transactionDate, excessDebitAmt, debitAmt);
+                                             String debitAmt, String paymentMode, Long clientId, String clientUsername) {
+        logger.info("saveTransaction: farmer={}, date={}, excessDebitAmt={}, debitAmt={}, paymentMode={}", farmerName, transactionDate, excessDebitAmt, debitAmt, paymentMode);
 
         if (farmerName == null || farmerName.trim().isEmpty()) {
             throw new IllegalArgumentException("Farmer name is required");
@@ -96,6 +96,11 @@ public class FarmerTransactionServiceImpl implements FarmerTransactionService {
             }
         }
 
+        String normalizedMode = paymentMode != null ? paymentMode.trim().toUpperCase() : "C";
+        if (!"C".equals(normalizedMode) && !"U".equals(normalizedMode)) {
+            normalizedMode = "C";
+        }
+
         String farmerId = farmerMasterDao.findIdByNameAndClientId(clientId, farmerName.trim());
         if (farmerId == null) {
             throw new IllegalArgumentException("Farmer '" + farmerName + "' not found in Farmer Master.");
@@ -122,6 +127,7 @@ public class FarmerTransactionServiceImpl implements FarmerTransactionService {
             txn.setCashPaidAmt(BigDecimal.ZERO);
             txn.setExcessDebitAmt(excessDebitAmount != null ? excessDebitAmount : BigDecimal.ZERO);
             txn.setDebAmt(debitAmount != null ? debitAmount : BigDecimal.ZERO);
+            txn.setPaymentMode(normalizedMode);
             farmerTransactionDao.insert(txn, conn);
 
             if (excessDebitAmount != null && excessDebitAmount.compareTo(BigDecimal.ZERO) > 0) {

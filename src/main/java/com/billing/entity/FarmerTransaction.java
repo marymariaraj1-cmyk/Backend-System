@@ -14,6 +14,7 @@ public class FarmerTransaction {
     private BigDecimal cashPaidAmt;
     private BigDecimal excessDebitAmt;
     private BigDecimal debAmt;
+    private String paymentMode;
 
     public FarmerTransaction() {
     }
@@ -88,5 +89,13 @@ public class FarmerTransaction {
 
     public void setDebAmt(BigDecimal debAmt) {
         this.debAmt = debAmt;
+    }
+
+    public String getPaymentMode() {
+        return paymentMode;
+    }
+
+    public void setPaymentMode(String paymentMode) {
+        this.paymentMode = paymentMode;
     }
 }

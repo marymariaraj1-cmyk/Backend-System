@@ -41,6 +41,21 @@ public class FarmerAccountCheckController {
         }
     }
 
+    @GetMapping("/closing-balance")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getClosingBalance(
+            @RequestParam String farmerId) {
+        Long clientId = SessionConfig.getCurrentClientId();
+        try {
+            BigDecimal closingBalance = farmerAccountCheckService.getLastActiveClosingBalance(clientId, farmerId);
+            Map<String, Object> data = new java.util.LinkedHashMap<>();
+            data.put("closingBalance", closingBalance);
+            return ResponseEntity.ok(ApiResponse.success("OK", data));
+        } catch (Exception e) {
+            logger.error("getClosingBalance: error", e);
+            return ResponseEntity.status(500).body(ApiResponse.error("Failed to fetch closing balance"));
+        }
+    }
+
     @PostMapping("/preview")
     public ResponseEntity<ApiResponse<Map<String, Boolean>>> preview(@RequestBody Map<String, Object> request) {
         Long clientId = SessionConfig.getCurrentClientId();

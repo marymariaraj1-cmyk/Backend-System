@@ -10,7 +10,7 @@ public interface BuyerTransactionService {
     List<String> getBuyerNames(Long clientId);
 
     BuyerTransaction saveTransaction(String buyerName, String transactionDate,
-                                     String cashPaidAmt, String disAmt,
+                                     String cashPaidAmt, String disAmt, String paymentMode,
                                      Long clientId, String clientUsername);
 
     List<BuyerTransaction> getTransactionHistory(String buyerName, String fromDate, String toDate, Long clientId);

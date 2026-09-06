@@ -10,6 +10,7 @@ import com.billing.dto.SalesEditRequestDto;
 import com.billing.dto.SalesEditRowDto;
 import com.billing.entity.BuyerLedger;
 import com.billing.entity.FarmerLedger;
+import com.billing.service.BagCountConfigService;
 import com.billing.service.LedgerSettlementService;
 import com.billing.service.SalesEditService;
 import com.billing.util.RoundOffUtil;
@@ -59,6 +60,7 @@ public class SalesEditServiceImpl implements SalesEditService {
     private final SalesTotalSummaryDao salesTotalSummaryDao;
     private final SalesEditDao salesEditDao;
     private final LedgerSettlementService ledgerSettlementService;
+    private final BagCountConfigService bagCountConfigService;
 
     @Autowired
     public SalesEditServiceImpl(DataSource dataSource,
@@ -68,7 +70,8 @@ public class SalesEditServiceImpl implements SalesEditService {
                                 BuyerLedgerDao buyerLedgerDao,
                                 SalesTotalSummaryDao salesTotalSummaryDao,
                                 SalesEditDao salesEditDao,
-                                LedgerSettlementService ledgerSettlementService) {
+                                LedgerSettlementService ledgerSettlementService,
+                                BagCountConfigService bagCountConfigService) {
         this.dataSource = dataSource;
         this.farmerMasterDao = farmerMasterDao;
         this.flowerMasterDao = flowerMasterDao;
@@ -77,6 +80,7 @@ public class SalesEditServiceImpl implements SalesEditService {
         this.salesTotalSummaryDao = salesTotalSummaryDao;
         this.salesEditDao = salesEditDao;
         this.ledgerSettlementService = ledgerSettlementService;
+        this.bagCountConfigService = bagCountConfigService;
     }
 
     @Override
@@ -200,13 +204,26 @@ public class SalesEditServiceImpl implements SalesEditService {
                         ? new BigDecimal(String.valueOf(existing.get("price"))) : BigDecimal.ZERO;
                 BigDecimal delta = newAmount.subtract(oldAmount);
 
-                if (delta.compareTo(BigDecimal.ZERO) == 0) {
+                String flowerId = flowerMasterDao.findIdByNameAndClientId(clientId, row.getFlowerType().trim());
+                Integer bagCount = row.getBagCount();
+
+                Integer oldBag = existing.get("bagCount") != null ? (Integer) existing.get("bagCount") : null;
+                boolean bagChanged = !java.util.Objects.equals(oldBag, bagCount);
+                boolean flowerChanged = existing.get("flowerType") == null
+                        || !String.valueOf(existing.get("flowerType")).trim().equalsIgnoreCase(row.getFlowerType().trim());
+
+                if (delta.compareTo(BigDecimal.ZERO) == 0 && !bagChanged && !flowerChanged) {
                     logger.info("saveEdits: no change for salesId={}, skipping", row.getSalesId());
                     continue;
                 }
 
                 salesEditDao.updateSalesRow(row.getSalesId(), clientId, row.getFlowerType().trim(),
-                        weight, rate, newAmount, conn);
+                        weight, rate, newAmount, flowerId, bagCount, conn);
+
+                // Bag count validation for edits: account for the edited value replacing the old one
+                if (bagCount != null && bagCount > 0 && flowerId != null) {
+                    validateEditedBagCount(clientId, date, flowerId, row.getSalesId(), oldBag, bagCount);
+                }
 
                 totalRowDelta = totalRowDelta.add(delta);
 
@@ -374,6 +391,27 @@ public class SalesEditServiceImpl implements SalesEditService {
         }
     }
 
+    private void validateEditedBagCount(Long clientId, LocalDate date, String flowerId,
+                                        Long salesId, Integer oldBag, Integer newBag) {
+        Map<String, Object> config = bagCountConfigService.getConfig(clientId, flowerId, date);
+        if (config == null) {
+            return;
+        }
+        String bagCheck = config.get("bagCheck") == null ? "" : String.valueOf(config.get("bagCheck"));
+        if (!"E".equalsIgnoreCase(bagCheck)) {
+            return;
+        }
+        int configuredLimit = config.get("bagCount") == null ? 0 : ((Number) config.get("bagCount")).intValue();
+        int dayTotal = bagCountConfigService.getSavedBagTotal(clientId, flowerId, date);
+        int adjustedTotal = dayTotal - (oldBag == null ? 0 : oldBag) + (newBag == null ? 0 : newBag);
+        if (adjustedTotal > configuredLimit) {
+            String flowerName = config.get("flowerName") == null ? flowerId : String.valueOf(config.get("flowerName"));
+            throw new IllegalArgumentException(
+                    "Bag count exceeded for flower '" + flowerName + "'. Allowed " + configuredLimit
+                            + " but total is " + adjustedTotal + ". Please increase the bag count in the configuration.");
+        }
+    }
+
     private void validateRow(SalesEditRowDto row, Set<String> flowerSet) {
         if (row.getSalesId() == null) {
             throw new IllegalArgumentException("Sales ID is required for edit");
@@ -416,8 +454,7 @@ public class SalesEditServiceImpl implements SalesEditService {
         return false;
     }
 
-    private BigDecimal parseDebitAmount(String value) {
-        if (value == null || value.trim().isEmpty()) {
+    private BigDecimal parseDebitAmount(String value) {        if (value == null || value.trim().isEmpty()) {
             return BigDecimal.ZERO;
         }
         if (!SalesUtil.isDecimal(value.trim())) {

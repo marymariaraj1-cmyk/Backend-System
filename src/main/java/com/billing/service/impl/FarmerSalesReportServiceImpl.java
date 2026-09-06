@@ -2,6 +2,7 @@ package com.billing.service.impl;
 
 import com.billing.dao.FarmerLedgerDao;
 import com.billing.dao.FarmerSalesReportDao;
+import com.billing.dao.FarmerTransactionDao;
 import com.billing.dao.SalesTotalSummaryDao;
 import com.billing.service.FarmerSalesReportService;
 import com.billing.util.RoundOffUtil;
@@ -25,19 +26,23 @@ public class FarmerSalesReportServiceImpl implements FarmerSalesReportService {
     private final FarmerSalesReportDao farmerSalesReportDao;
     private final FarmerLedgerDao farmerLedgerDao;
     private final SalesTotalSummaryDao salesTotalSummaryDao;
+    private final FarmerTransactionDao farmerTransactionDao;
 
     public FarmerSalesReportServiceImpl(FarmerSalesReportDao farmerSalesReportDao,
                                         FarmerLedgerDao farmerLedgerDao,
-                                        SalesTotalSummaryDao salesTotalSummaryDao) {
+                                        SalesTotalSummaryDao salesTotalSummaryDao,
+                                        FarmerTransactionDao farmerTransactionDao) {
         this.farmerSalesReportDao = farmerSalesReportDao;
         this.farmerLedgerDao = farmerLedgerDao;
         this.salesTotalSummaryDao = salesTotalSummaryDao;
+        this.farmerTransactionDao = farmerTransactionDao;
     }
 
     @Override
     public Map<String, Object> getFarmerSalesByDate(Long clientId, String clientUsername, String farmerId, LocalDate date, String ledgerActive, BigDecimal creditAmt) {
         logger.info("getFarmerSalesByDate: clientId={}, farmerId={}, date={}, ledgerActive={}, creditAmt={}", clientId, farmerId, date, ledgerActive, creditAmt);
         String salesIdsStr = farmerLedgerDao.findSalesIds(clientId, farmerId, date, ledgerActive);
+        boolean hasAdjustment = containsAdjustmentMarker(salesIdsStr);
         List<Map<String, Object>> rows;
         if (salesIdsStr == null || salesIdsStr.trim().isEmpty()) {
             rows = Collections.emptyList();
@@ -58,8 +63,26 @@ public class FarmerSalesReportServiceImpl implements FarmerSalesReportService {
         BigDecimal commission = RoundOffUtil.round(total.multiply(new BigDecimal("0.10")));
         BigDecimal netAmount = RoundOffUtil.round(total.subtract(commission));
 
+        BigDecimal adjustmentAmt = BigDecimal.ZERO;
+        if (hasAdjustment) {
+            BigDecimal latestCashPaid = farmerTransactionDao.findLatestCashPaid(clientId, farmerId, date);
+            if (latestCashPaid != null) {
+                adjustmentAmt = RoundOffUtil.round(latestCashPaid);
+            }
+        }
+
         BigDecimal finalTotal = creditAmt != null ? RoundOffUtil.round(creditAmt) : BigDecimal.ZERO;
-        BigDecimal debit = netAmount.compareTo(finalTotal) == 0 ? BigDecimal.ZERO : RoundOffUtil.round(netAmount.subtract(finalTotal));
+        BigDecimal baseFinal = RoundOffUtil.round(finalTotal.subtract(adjustmentAmt));
+        BigDecimal debit = netAmount.compareTo(baseFinal) == 0 ? BigDecimal.ZERO : RoundOffUtil.round(netAmount.subtract(baseFinal));
+
+        // Fetch debit breakdown from BLOOMBUDDY_FARMER_TRANSACTION for display purpose
+        List<BigDecimal> debAmts = farmerTransactionDao.findDebAmts(clientId, farmerId, date);
+        String debitBreakdown = "";
+        if (debAmts != null && !debAmts.isEmpty()) {
+            debitBreakdown = debAmts.stream()
+                    .map(d -> stripTrailingZeros(d))
+                    .collect(java.util.stream.Collectors.joining(" + "));
+        }
 
         Map<String, Object> summary = new LinkedHashMap<>();
         summary.put("total", total);
@@ -67,11 +90,32 @@ public class FarmerSalesReportServiceImpl implements FarmerSalesReportService {
         summary.put("netAmount", netAmount);
         summary.put("debit", debit);
         summary.put("finalTotal", finalTotal);
+        summary.put("adjustmentAmt", adjustmentAmt);
+        summary.put("debitBreakdown", debitBreakdown);
+        summary.put("debitDetails", debAmts);
 
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("data", rows);
         data.put("summary", summary);
         return data;
+    }
+
+    private boolean containsAdjustmentMarker(String salesIdsStr) {
+        if (salesIdsStr == null || salesIdsStr.trim().isEmpty()) {
+            return false;
+        }
+        for (String part : salesIdsStr.split(",")) {
+            if ("0".equals(part.trim())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private String stripTrailingZeros(BigDecimal value) {
+        if (value == null) return "0";
+        String plain = value.stripTrailingZeros().toPlainString();
+        return plain;
     }
 
     private List<Long> parseSalesIds(String salesIdsStr) {
@@ -82,7 +126,7 @@ public class FarmerSalesReportServiceImpl implements FarmerSalesReportService {
         List<Long> ids = new ArrayList<>();
         for (String part : parts) {
             String trimmed = part.trim();
-            if (!trimmed.isEmpty()) {
+            if (!trimmed.isEmpty() && !"0".equals(trimmed)) {
                 try {
                     ids.add(Long.parseLong(trimmed));
                 } catch (NumberFormatException e) {
@@ -163,6 +207,20 @@ public class FarmerSalesReportServiceImpl implements FarmerSalesReportService {
             farmerRow.put("netAmount", RoundOffUtil.round((BigDecimal) farmerRow.get("netAmount")));
             farmerRow.put("totalNetAmt", RoundOffUtil.round((BigDecimal) farmerRow.get("totalNetAmt")));
             farmerRow.put("finalTotal", RoundOffUtil.round((BigDecimal) farmerRow.get("finalTotal")));
+            // Add debit breakdown for display (from BLOOMBUDDY_FARMER_TRANSACTION)
+            try {
+                String fid = (String) farmerRow.get("farmerId");
+                List<BigDecimal> debAmts = farmerTransactionDao.findByFarmerAndDateRange(clientId, fid, fromDate, toDate).stream()
+                        .map(txn -> RoundOffUtil.round(txn.getDebAmt()))
+                        .filter(d -> d.compareTo(BigDecimal.ZERO) > 0)
+                        .collect(java.util.stream.Collectors.toList());
+                String breakdown = debAmts.stream().map(this::stripTrailingZeros).collect(java.util.stream.Collectors.joining(" + "));
+                farmerRow.put("debitBreakdown", breakdown);
+                farmerRow.put("debitDetails", debAmts);
+            } catch (Exception e) {
+                farmerRow.put("debitBreakdown", "");
+                farmerRow.put("debitDetails", java.util.Collections.emptyList());
+            }
             report.add(farmerRow);
         }
 
@@ -222,6 +280,20 @@ public class FarmerSalesReportServiceImpl implements FarmerSalesReportService {
             farmerRow.put("netAmount", RoundOffUtil.round((BigDecimal) farmerRow.get("netAmount")));
             farmerRow.put("totalNetAmt", RoundOffUtil.round((BigDecimal) farmerRow.get("totalNetAmt")));
             farmerRow.put("finalTotal", RoundOffUtil.round((BigDecimal) farmerRow.get("finalTotal")));
+            try {
+                String fid = (String) farmerRow.get("farmerId");
+                LocalDate todayDate = LocalDate.now();
+                List<BigDecimal> debAmtsToday = farmerTransactionDao.findByFarmerAndDateRange(clientId, fid, todayDate, todayDate).stream()
+                        .map(txn -> RoundOffUtil.round(txn.getDebAmt()))
+                        .filter(d -> d.compareTo(BigDecimal.ZERO) > 0)
+                        .collect(java.util.stream.Collectors.toList());
+                String breakdownToday = debAmtsToday.stream().map(this::stripTrailingZeros).collect(java.util.stream.Collectors.joining(" + "));
+                farmerRow.put("debitBreakdown", breakdownToday);
+                farmerRow.put("debitDetails", debAmtsToday);
+            } catch (Exception e) {
+                farmerRow.put("debitBreakdown", "");
+                farmerRow.put("debitDetails", java.util.Collections.emptyList());
+            }
             report.add(farmerRow);
         }
 

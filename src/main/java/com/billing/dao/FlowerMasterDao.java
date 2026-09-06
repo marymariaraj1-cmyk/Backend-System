@@ -18,5 +18,7 @@ public interface FlowerMasterDao {
 
     List<String> findNamesByClientId(Long clientId);
 
+    String findIdByNameAndClientId(Long clientId, String flowerName);
+
     void deleteById(String flowerId, Long clientId);
 }

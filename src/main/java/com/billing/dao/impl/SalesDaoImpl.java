@@ -18,19 +18,19 @@ public class SalesDaoImpl implements SalesDao {
     private static final Logger logger = LoggerFactory.getLogger(SalesDaoImpl.class);
 
     private static final String INSERT_SQL =
-            "INSERT INTO BLOOMBUDDY_SALES (CLIENT_ID, CLIENT_USERNAME, FARMER_ID, FARMER_NAME, SALES_DATE, FLOWER_TYPE, TOTAL_WEIGHT, PRICE, BUYER_ID, PERKG_RATE, CUST_NAME, DEBIT_CREDIT_FLAG, SALE_SLOT_ID) "
-                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+            "INSERT INTO BLOOMBUDDY_SALES (CLIENT_ID, CLIENT_USERNAME, FARMER_ID, FARMER_NAME, SALES_DATE, FLOWER_TYPE, TOTAL_WEIGHT, PRICE, BUYER_ID, PERKG_RATE, CUST_NAME, DEBIT_CREDIT_FLAG, SALE_SLOT_ID, FLOWER_ID, BAG_COUNT) "
+                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
     private static final String UPDATE_SQL =
-            "UPDATE BLOOMBUDDY_SALES SET CLIENT_ID=?, CLIENT_USERNAME=?, FARMER_ID=?, FARMER_NAME=?, SALES_DATE=?, FLOWER_TYPE=?, TOTAL_WEIGHT=?, PRICE=?, BUYER_ID=?, PERKG_RATE=?, CUST_NAME=?, DEBIT_CREDIT_FLAG=?, SALE_SLOT_ID=? "
+            "UPDATE BLOOMBUDDY_SALES SET CLIENT_ID=?, CLIENT_USERNAME=?, FARMER_ID=?, FARMER_NAME=?, SALES_DATE=?, FLOWER_TYPE=?, TOTAL_WEIGHT=?, PRICE=?, BUYER_ID=?, PERKG_RATE=?, CUST_NAME=?, DEBIT_CREDIT_FLAG=?, SALE_SLOT_ID=?, FLOWER_ID=?, BAG_COUNT=? "
                     + "WHERE SALES_ID=? AND CLIENT_ID=?";
 
     private static final String SELECT_BY_ID_SQL =
-            "SELECT SALES_ID, CLIENT_ID, CLIENT_USERNAME, FARMER_ID, FARMER_NAME, SALES_DATE, FLOWER_TYPE, TOTAL_WEIGHT, PRICE, BUYER_ID, PERKG_RATE, CUST_NAME, DEBIT_CREDIT_FLAG, SALE_SLOT_ID "
+            "SELECT SALES_ID, CLIENT_ID, CLIENT_USERNAME, FARMER_ID, FARMER_NAME, SALES_DATE, FLOWER_TYPE, TOTAL_WEIGHT, PRICE, BUYER_ID, PERKG_RATE, CUST_NAME, DEBIT_CREDIT_FLAG, SALE_SLOT_ID, FLOWER_ID, BAG_COUNT "
                     + "FROM BLOOMBUDDY_SALES WHERE SALES_ID=? AND CLIENT_ID=?";
 
     private static final String SELECT_SQL =
-            "SELECT SALES_ID, CLIENT_ID, CLIENT_USERNAME, FARMER_ID, FARMER_NAME, SALES_DATE, FLOWER_TYPE, TOTAL_WEIGHT, PRICE, BUYER_ID, PERKG_RATE, CUST_NAME, DEBIT_CREDIT_FLAG, SALE_SLOT_ID "
+            "SELECT SALES_ID, CLIENT_ID, CLIENT_USERNAME, FARMER_ID, FARMER_NAME, SALES_DATE, FLOWER_TYPE, TOTAL_WEIGHT, PRICE, BUYER_ID, PERKG_RATE, CUST_NAME, DEBIT_CREDIT_FLAG, SALE_SLOT_ID, FLOWER_ID, BAG_COUNT "
                     + "FROM BLOOMBUDDY_SALES WHERE CLIENT_ID = ? AND FARMER_NAME = ? AND SALES_DATE = ? "
                     + "ORDER BY SALES_ID DESC";
 
@@ -64,6 +64,12 @@ public class SalesDaoImpl implements SalesDao {
                 ps.setString(11, sales.getCustName());
                 ps.setString(12, sales.getDebitCreditFlag());
                 ps.setString(13, sales.getSaleSlotId());
+                ps.setString(14, sales.getFlowerId());
+                if (sales.getBagCount() != null) {
+                    ps.setInt(15, sales.getBagCount());
+                } else {
+                    ps.setNull(15, java.sql.Types.INTEGER);
+                }
                 ps.addBatch();
             }
             ps.executeBatch();
@@ -105,8 +111,14 @@ public class SalesDaoImpl implements SalesDao {
             ps.setString(11, sales.getCustName());
             ps.setString(12, sales.getDebitCreditFlag());
             ps.setString(13, sales.getSaleSlotId());
-            ps.setLong(14, sales.getSalesId());
-            ps.setLong(15, sales.getClientId());
+            ps.setString(14, sales.getFlowerId());
+            if (sales.getBagCount() != null) {
+                ps.setInt(15, sales.getBagCount());
+            } else {
+                ps.setNull(15, java.sql.Types.INTEGER);
+            }
+            ps.setLong(16, sales.getSalesId());
+            ps.setLong(17, sales.getClientId());
             int rowsAffected = ps.executeUpdate();
             logger.info("updateSales: rows affected = {}", rowsAffected);
             if (rowsAffected == 0) {
@@ -175,6 +187,9 @@ public class SalesDaoImpl implements SalesDao {
         sales.setCustName(rs.getString("CUST_NAME"));
         sales.setDebitCreditFlag(rs.getString("DEBIT_CREDIT_FLAG"));
         sales.setSaleSlotId(rs.getString("SALE_SLOT_ID"));
+        sales.setFlowerId(rs.getString("FLOWER_ID"));
+        int bagCount = rs.getInt("BAG_COUNT");
+        sales.setBagCount(rs.wasNull() ? null : bagCount);
         return sales;
     }
 }

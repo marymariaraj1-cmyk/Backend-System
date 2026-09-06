@@ -53,6 +53,12 @@ public class Sales {
     @Column(name = "SALE_SLOT_ID", length = 50)
     private String saleSlotId;
 
+    @Column(name = "FLOWER_ID", length = 60)
+    private String flowerId;
+
+    @Column(name = "BAG_COUNT")
+    private Integer bagCount;
+
     public Sales() {
     }
 
@@ -166,5 +172,21 @@ public class Sales {
 
     public void setSaleSlotId(String saleSlotId) {
         this.saleSlotId = saleSlotId;
+    }
+
+    public String getFlowerId() {
+        return flowerId;
+    }
+
+    public void setFlowerId(String flowerId) {
+        this.flowerId = flowerId;
+    }
+
+    public Integer getBagCount() {
+        return bagCount;
+    }
+
+    public void setBagCount(Integer bagCount) {
+        this.bagCount = bagCount;
     }
 }

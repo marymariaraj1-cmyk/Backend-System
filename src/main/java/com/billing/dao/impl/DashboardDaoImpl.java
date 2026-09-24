@@ -58,6 +58,31 @@ public class DashboardDaoImpl implements DashboardDao {
     private static final String FLOWER_COUNT_SQL =
             "SELECT COUNT(*) AS CNT FROM BLOOMBUDDY_FLOWER_MASTER WHERE CLIENT_ID = ?";
 
+    private static final String TODAY_CASH_BOOK_SQL =
+            "SELECT " +
+            "(SELECT COALESCE(SUM(PRICE), 0) FROM BLOOMBUDDY_SALES " +
+            "WHERE CLIENT_ID = ? AND SALES_DATE = CURDATE()) AS TODAY_PAKKI, " +
+            "(SELECT COALESCE(SUM(CASH_PAID_AMT), 0) FROM BLOOMBUDDY_BUYER_TRANSACTION " +
+            "WHERE CLIENT_ID = ? AND TRANSACTION_DATE = CURDATE() AND PAYMENT_MODE = 'C') AS TODAY_VARAVU, " +
+            "(SELECT COALESCE(SUM(FINAL_AMT), 0) FROM BLOOMBUDDY_SALES_TOTALSUMMARY " +
+            "WHERE CLIENT_ID = ? AND SALES_DATE = CURDATE()) AS SALES_WITH_DEDUCTION, " +
+            "(SELECT COALESCE(SUM(TOTAL_SALES_AMT), 0) FROM BLOOMBUDDY_SALES_TOTALSUMMARY " +
+            "WHERE CLIENT_ID = ? AND SALES_DATE = CURDATE()) AS SALES_WITHOUT_DEDUCTION";
+
+    private static final String INACTIVE_FARMER_COUNT_SQL =
+            "SELECT COUNT(*) AS CNT FROM BLOOMBUDDY_FARMER_MASTER f " +
+            "WHERE f.CLIENT_ID = ? " +
+            "AND NOT EXISTS (SELECT 1 FROM BLOOMBUDDY_SALES s " +
+            "WHERE s.CLIENT_ID = f.CLIENT_ID AND s.FARMER_ID = f.FARMER_ID " +
+            "AND s.SALES_DATE = CURDATE())";
+
+    private static final String INACTIVE_BUYER_COUNT_SQL =
+            "SELECT COUNT(*) AS CNT FROM BLOOMBUDDY_BUYER_MASTER b " +
+            "WHERE b.CLIENT_ID = ? " +
+            "AND NOT EXISTS (SELECT 1 FROM BLOOMBUDDY_SALES s " +
+            "WHERE s.CLIENT_ID = b.CLIENT_ID AND s.BUYER_ID = b.BUYER_ID " +
+            "AND s.SALES_DATE = CURDATE())";
+
     private static final String SALES_TREND_SQL =
             "SELECT SALES_DATE, COALESCE(SUM(TOTAL_SALES_AMT), 0) AS AMOUNT " +
             "FROM BLOOMBUDDY_SALES_TOTALSUMMARY " +
@@ -145,6 +170,11 @@ public class DashboardDaoImpl implements DashboardDao {
         kpi.put("todayKg", toBigDecimal(metrics.get("TODAY_KG")));
         kpi.put("activeFarmers", toInt(metrics.get("ACTIVE_FARMERS")));
         kpi.put("activeBuyers", toInt(metrics.get("ACTIVE_BUYERS")));
+        Map<String, Object> cashBook = queryCashBookKpi(clientId);
+        kpi.put("todayPakki", RoundOffUtil.round(toBigDecimal(cashBook.get("TODAY_PAKKI"))));
+        kpi.put("todayVaravu", RoundOffUtil.round(toBigDecimal(cashBook.get("TODAY_VARAVU"))));
+        kpi.put("salesWithDeduction", RoundOffUtil.round(toBigDecimal(cashBook.get("SALES_WITH_DEDUCTION"))));
+        kpi.put("salesWithoutDeduction", RoundOffUtil.round(toBigDecimal(cashBook.get("SALES_WITHOUT_DEDUCTION"))));
         return kpi;
     }
 
@@ -155,6 +185,8 @@ public class DashboardDaoImpl implements DashboardDao {
         counts.put("farmers", queryCount(FARMER_COUNT_SQL, clientId));
         counts.put("buyers", queryCount(BUYER_COUNT_SQL, clientId));
         counts.put("flowers", queryCount(FLOWER_COUNT_SQL, clientId));
+        counts.put("inactiveFarmers", queryCount(INACTIVE_FARMER_COUNT_SQL, clientId));
+        counts.put("inactiveBuyers", queryCount(INACTIVE_BUYER_COUNT_SQL, clientId));
         return counts;
     }
 
@@ -302,6 +334,29 @@ public class DashboardDaoImpl implements DashboardDao {
             throw new RuntimeException("Failed to fetch direct payments", e);
         }
         return result;
+    }
+
+    private Map<String, Object> queryCashBookKpi(Long clientId) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement ps = conn.prepareStatement(TODAY_CASH_BOOK_SQL)) {
+            ps.setLong(1, clientId);
+            ps.setLong(2, clientId);
+            ps.setLong(3, clientId);
+            ps.setLong(4, clientId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    row.put("TODAY_PAKKI", rs.getObject("TODAY_PAKKI"));
+                    row.put("TODAY_VARAVU", rs.getObject("TODAY_VARAVU"));
+                    row.put("SALES_WITH_DEDUCTION", rs.getObject("SALES_WITH_DEDUCTION"));
+                    row.put("SALES_WITHOUT_DEDUCTION", rs.getObject("SALES_WITHOUT_DEDUCTION"));
+                }
+            }
+        } catch (SQLException e) {
+            logger.error("queryCashBookKpi: SQL exception for clientId={}", clientId, e);
+            throw new RuntimeException("Failed to fetch dashboard metric", e);
+        }
+        return row;
     }
 
     private Map<String, Object> querySingleRow(String sql, Long clientId) {

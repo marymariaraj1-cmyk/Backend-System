@@ -20,4 +20,6 @@ public interface SalesTotalSummaryDao {
     Map<String, Object> findLatestBefore(Long clientId, String farmerId, LocalDate date);
 
     void adjustDebit(Long clientId, String farmerId, LocalDate salesDate, java.math.BigDecimal debitAmount, Connection conn);
+
+    void deleteRow(Long clientId, String farmerId, LocalDate salesDate, Connection conn);
 }

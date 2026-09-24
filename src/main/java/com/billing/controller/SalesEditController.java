@@ -2,6 +2,7 @@ package com.billing.controller;
 
 import com.billing.config.SessionConfig;
 import com.billing.dto.ApiResponse;
+import com.billing.dto.SalesEditDeleteRequestDto;
 import com.billing.dto.SalesEditRequestDto;
 import com.billing.service.SalesEditService;
 import org.slf4j.Logger;
@@ -55,5 +56,17 @@ public class SalesEditController {
                 clientId);
         Map<String, Object> result = salesEditService.saveEdits(request, clientId, clientUsername);
         return ResponseEntity.ok(ApiResponse.success("Sales details updated successfully", result));
+    }
+
+    @PostMapping("/delete")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> delete(
+            @RequestBody SalesEditDeleteRequestDto request) {
+        Long clientId = SessionConfig.getCurrentClientId();
+        String clientUsername = SessionConfig.getCurrentClientUsername();
+        logger.info("delete: salesId={}, clientId={}",
+                request == null ? null : request.getSalesId(), clientId);
+        Map<String, Object> result = salesEditService.deleteSalesEntry(
+                request == null ? null : request.getSalesId(), clientId, clientUsername);
+        return ResponseEntity.ok(ApiResponse.success("Sales entry deleted successfully", result));
     }
 }

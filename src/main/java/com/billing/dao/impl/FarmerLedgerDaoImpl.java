@@ -115,6 +115,10 @@ public class FarmerLedgerDaoImpl implements FarmerLedgerDao {
                     + "WHERE CLIENT_ID = ? AND FARMER_ID = ? AND SALES_DATE = ? "
                     + "ORDER BY CASE WHEN LEDGER_ACTIVE = ? THEN 0 ELSE 1 END ASC LIMIT 1";
 
+    private static final String UPDATE_SALES_IDS_SQL =
+            "UPDATE BLOOMBUDDY_FARMER_LEDGER SET SALES_IDS = ? "
+                    + "WHERE CLIENT_ID = ? AND FARMER_ID = ? AND SALES_DATE = ? AND LEDGER_ACTIVE = 'Y'";
+
     private static final String SET_CREDIT_SQL =
             "INSERT INTO BLOOMBUDDY_FARMER_LEDGER (CLIENT_ID, CLIENT_USERNAME, FARMER_ID, FARMER_NAME, SALES_DATE, DEBIT_AMT, CREDIT_AMT) "
                     + "VALUES (?, ?, ?, ?, ?, 0, ?) "
@@ -439,6 +443,49 @@ public class FarmerLedgerDaoImpl implements FarmerLedgerDao {
         } catch (SQLException e) {
             logger.error("findSalesIds: SQL exception", e);
             throw new RuntimeException("Failed to fetch farmer sales IDs", e);
+        }
+    }
+
+    /* UPDATE_SALES_IDS_SQL */
+    @Override
+    public void updateSalesIds(Long clientId, String farmerId, LocalDate date, String salesIds, Connection conn) {
+        logger.info("updateSalesIds: clientId={}, farmerId={}, date={}, salesIds={}", clientId, farmerId, date, salesIds);
+        try (PreparedStatement ps = conn.prepareStatement(UPDATE_SALES_IDS_SQL)) {
+            if (salesIds == null || salesIds.trim().isEmpty()) {
+                ps.setNull(1, java.sql.Types.VARCHAR);
+            } else {
+                ps.setString(1, salesIds);
+            }
+            ps.setLong(2, clientId);
+            ps.setString(3, farmerId);
+            ps.setDate(4, java.sql.Date.valueOf(date));
+            int updated = ps.executeUpdate();
+            logger.info("updateSalesIds: updated rows={}", updated);
+        } catch (SQLException e) {
+            logger.error("updateSalesIds: SQL exception while updating farmer ledger sales ids", e);
+            throw new RuntimeException("Failed to update farmer ledger sales ids", e);
+        }
+    }
+
+    private static final String DELETE_ROW_IF_ZERO_SQL =
+            "DELETE FROM BLOOMBUDDY_FARMER_LEDGER "
+                    + "WHERE CLIENT_ID = ? AND FARMER_ID = ? AND SALES_DATE = ? AND LEDGER_ACTIVE = 'Y' "
+                    + "AND COALESCE(CREDIT_AMT, 0) = 0 AND COALESCE(DEBIT_AMT, 0) = 0 "
+                    + "AND (SALES_IDS IS NULL OR TRIM(SALES_IDS) = '') "
+                    + "AND (OPENING_BALANCE IS NULL OR COALESCE(OPENING_BALANCE, 0) = 0)";
+
+    @Override
+    public void deleteRowIfZero(Long clientId, String farmerId, LocalDate date, Connection conn) {
+        logger.info("deleteRowIfZero: clientId={}, farmerId={}, date={}", clientId, farmerId, date);
+        try (PreparedStatement ps = conn.prepareStatement(DELETE_ROW_IF_ZERO_SQL)) {
+            ps.setLong(1, clientId);
+            ps.setString(2, farmerId);
+            ps.setDate(3, java.sql.Date.valueOf(date));
+            int updated = ps.executeUpdate();
+            logger.info("deleteRowIfZero: deleted rows={}", updated);
+        } catch (SQLException e) {
+            logger.error("deleteRowIfZero: SQL exception while deleting zeroed farmer ledger row", e);
+            throw new RuntimeException("Failed to delete zeroed farmer ledger row", e);
         }
     }
 

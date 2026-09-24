@@ -8,6 +8,7 @@ public class SalesEditRowDto {
     private String price;
     private String amount;
     private Integer bagCount;
+    private String customerName;
 
     public Long getSalesId() {
         return salesId;
@@ -55,5 +56,13 @@ public class SalesEditRowDto {
 
     public void setBagCount(Integer bagCount) {
         this.bagCount = bagCount;
+    }
+
+    public String getCustomerName() {
+        return customerName;
+    }
+
+    public void setCustomerName(String customerName) {
+        this.customerName = customerName;
     }
 }

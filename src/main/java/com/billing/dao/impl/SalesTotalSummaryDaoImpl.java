@@ -57,6 +57,10 @@ public class SalesTotalSummaryDaoImpl implements SalesTotalSummaryDao {
             "SET DEBIT_AMT = DEBIT_AMT + ?, FINAL_AMT = FINAL_AMT - ? " +
             "WHERE CLIENT_ID = ? AND FARMER_ID = ? AND SALES_DATE = ?";
 
+    private static final String DELETE_ROW_SQL =
+            "DELETE FROM BLOOMBUDDY_SALES_TOTALSUMMARY " +
+            "WHERE CLIENT_ID = ? AND FARMER_ID = ? AND SALES_DATE = ?";
+
     private final DataSource dataSource;
 
     @Autowired
@@ -180,6 +184,21 @@ public class SalesTotalSummaryDaoImpl implements SalesTotalSummaryDao {
         } catch (SQLException e) {
             logger.error("adjustDebit: SQL exception while updating sales total summary", e);
             throw new RuntimeException("Failed to adjust sales total summary debit", e);
+        }
+    }
+
+    @Override
+    public void deleteRow(Long clientId, String farmerId, LocalDate salesDate, Connection conn) {
+        logger.info("deleteRow: clientId={}, farmerId={}, date={}", clientId, farmerId, salesDate);
+        try (PreparedStatement ps = conn.prepareStatement(DELETE_ROW_SQL)) {
+            ps.setLong(1, clientId);
+            ps.setString(2, farmerId);
+            ps.setDate(3, java.sql.Date.valueOf(salesDate));
+            int updated = ps.executeUpdate();
+            logger.info("deleteRow: deleted rows={}", updated);
+        } catch (SQLException e) {
+            logger.error("deleteRow: SQL exception while deleting sales total summary row", e);
+            throw new RuntimeException("Failed to delete sales total summary row", e);
         }
     }
 

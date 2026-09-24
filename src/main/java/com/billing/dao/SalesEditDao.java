@@ -28,4 +28,9 @@ public interface SalesEditDao {
                           LocalDate salesDate, BigDecimal totalSalesAmt, BigDecimal commissionAmt,
                           BigDecimal totalNetAmt, BigDecimal debitAmt, BigDecimal finalAmt,
                           Connection conn);
+
+    void updateSalesRowCustomerName(Long salesId, Long clientId, String customerName,
+                                    String buyerId, Connection conn);
+
+    void deleteSalesRow(Long salesId, Long clientId, Connection conn);
 }

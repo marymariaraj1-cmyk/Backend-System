@@ -36,6 +36,10 @@ public interface FarmerLedgerDao {
 
     String findSalesIds(Long clientId, String farmerId, LocalDate date, String wantedActive);
 
+    void updateSalesIds(Long clientId, String farmerId, LocalDate date, String salesIds, Connection conn);
+
+    void deleteRowIfZero(Long clientId, String farmerId, LocalDate date, Connection conn);
+
     void setDebitAmt(Long clientId, String clientUsername, String farmerId, String farmerName,
                      LocalDate date, BigDecimal amount, Connection conn);
 

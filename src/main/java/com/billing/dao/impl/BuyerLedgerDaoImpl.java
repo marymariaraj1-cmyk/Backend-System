@@ -113,6 +113,14 @@ public class BuyerLedgerDaoImpl implements BuyerLedgerDao {
             "UPDATE BLOOMBUDDY_BUYER_LEDGER SET DEBIT_AMT = DEBIT_AMT - ? "
                     + "WHERE CLIENT_ID = ? AND BUYER_ID = ? AND SALES_DATE = ? AND LEDGER_ACTIVE = 'Y'";
 
+    private static final String DECREASE_CREDIT_SQL =
+            "UPDATE BLOOMBUDDY_BUYER_LEDGER SET CREDIT_AMT = CREDIT_AMT - ? "
+                    + "WHERE CLIENT_ID = ? AND BUYER_ID = ? AND SALES_DATE = ? AND LEDGER_ACTIVE = 'Y'";
+
+    private static final String UPDATE_SALES_IDS_SQL =
+            "UPDATE BLOOMBUDDY_BUYER_LEDGER SET SALES_IDS = ? "
+                    + "WHERE CLIENT_ID = ? AND BUYER_ID = ? AND SALES_DATE = ? AND LEDGER_ACTIVE = 'Y'";
+
     private static final String ADD_DISCOUNT_SQL =
             "UPDATE BLOOMBUDDY_BUYER_LEDGER SET DIS_AMT = COALESCE(DIS_AMT, 0) + ? "
                     + "WHERE CLIENT_ID = ? AND BUYER_ID = ? AND SALES_DATE = ? AND LEDGER_ACTIVE = 'Y'";
@@ -331,6 +339,42 @@ public class BuyerLedgerDaoImpl implements BuyerLedgerDao {
     }
 
     @Override
+    public void decreaseCreditAmt(Long clientId, String buyerId, LocalDate date, BigDecimal amount, Connection conn) {
+        logger.info("decreaseCreditAmt: clientId={}, buyerId={}, date={}, amount={}", clientId, buyerId, date, amount);
+        try (PreparedStatement ps = conn.prepareStatement(DECREASE_CREDIT_SQL)) {
+            ps.setBigDecimal(1, amount);
+            ps.setLong(2, clientId);
+            ps.setString(3, buyerId);
+            ps.setDate(4, java.sql.Date.valueOf(date));
+            int updated = ps.executeUpdate();
+            logger.info("decreaseCreditAmt: updated rows={}", updated);
+        } catch (SQLException e) {
+            logger.error("decreaseCreditAmt: SQL exception while updating buyer ledger", e);
+            throw new RuntimeException("Failed to decrease buyer ledger credit", e);
+        }
+    }
+
+    @Override
+    public void updateSalesIds(Long clientId, String buyerId, LocalDate date, String salesIds, Connection conn) {
+        logger.info("updateSalesIds: clientId={}, buyerId={}, date={}, salesIds={}", clientId, buyerId, date, salesIds);
+        try (PreparedStatement ps = conn.prepareStatement(UPDATE_SALES_IDS_SQL)) {
+            if (salesIds == null || salesIds.trim().isEmpty()) {
+                ps.setNull(1, java.sql.Types.VARCHAR);
+            } else {
+                ps.setString(1, salesIds);
+            }
+            ps.setLong(2, clientId);
+            ps.setString(3, buyerId);
+            ps.setDate(4, java.sql.Date.valueOf(date));
+            int updated = ps.executeUpdate();
+            logger.info("updateSalesIds: updated rows={}", updated);
+        } catch (SQLException e) {
+            logger.error("updateSalesIds: SQL exception while updating buyer ledger sales ids", e);
+            throw new RuntimeException("Failed to update buyer ledger sales ids", e);
+        }
+    }
+
+    @Override
     public void addDiscountAmt(Long clientId, String buyerId, LocalDate date, BigDecimal amount, Connection conn) {
         logger.info("addDiscountAmt: clientId={}, buyerId={}, date={}, amount={}", clientId, buyerId, date, amount);
         try (PreparedStatement ps = conn.prepareStatement(ADD_DISCOUNT_SQL)) {
@@ -385,6 +429,29 @@ public class BuyerLedgerDaoImpl implements BuyerLedgerDao {
         } catch (SQLException e) {
             logger.error("findSalesIds: SQL exception", e);
             throw new RuntimeException("Failed to fetch buyer sales IDs", e);
+        }
+    }
+
+    private static final String DELETE_ROW_IF_ZERO_SQL =
+            "DELETE FROM BLOOMBUDDY_BUYER_LEDGER "
+                    + "WHERE CLIENT_ID = ? AND BUYER_ID = ? AND SALES_DATE = ? AND LEDGER_ACTIVE = 'Y' "
+                    + "AND COALESCE(CREDIT_AMT, 0) = 0 AND COALESCE(DEBIT_AMT, 0) = 0 "
+                    + "AND (SALES_IDS IS NULL OR TRIM(SALES_IDS) = '') "
+                    + "AND (OPENING_BALANCE IS NULL OR COALESCE(OPENING_BALANCE, 0) = 0) "
+                    + "AND (DIS_AMT IS NULL OR COALESCE(DIS_AMT, 0) = 0)";
+
+    @Override
+    public void deleteRowIfZero(Long clientId, String buyerId, LocalDate date, Connection conn) {
+        logger.info("deleteRowIfZero: clientId={}, buyerId={}, date={}", clientId, buyerId, date);
+        try (PreparedStatement ps = conn.prepareStatement(DELETE_ROW_IF_ZERO_SQL)) {
+            ps.setLong(1, clientId);
+            ps.setString(2, buyerId);
+            ps.setDate(3, java.sql.Date.valueOf(date));
+            int updated = ps.executeUpdate();
+            logger.info("deleteRowIfZero: deleted rows={}", updated);
+        } catch (SQLException e) {
+            logger.error("deleteRowIfZero: SQL exception while deleting zeroed buyer ledger row", e);
+            throw new RuntimeException("Failed to delete zeroed buyer ledger row", e);
         }
     }
 

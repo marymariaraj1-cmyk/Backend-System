@@ -43,6 +43,13 @@ public class SalesEditDaoImpl implements SalesEditDao {
             "UPDATE BLOOMBUDDY_SALES SET FLOWER_TYPE = ?, TOTAL_WEIGHT = ?, PERKG_RATE = ?, PRICE = ?, FLOWER_ID = ?, BAG_COUNT = ? "
                     + "WHERE SALES_ID = ? AND CLIENT_ID = ?";
 
+    private static final String UPDATE_SALES_ROW_CUSTOMER_SQL =
+            "UPDATE BLOOMBUDDY_SALES SET CUST_NAME = ?, BUYER_ID = ? "
+                    + "WHERE SALES_ID = ? AND CLIENT_ID = ?";
+
+    private static final String DELETE_SALES_ROW_SQL =
+            "DELETE FROM BLOOMBUDDY_SALES WHERE SALES_ID = ? AND CLIENT_ID = ?";
+
     private static final String ADJUST_SUMMARY_SALES_AMOUNTS_SQL =
             "UPDATE BLOOMBUDDY_SALES_TOTALSUMMARY SET "
                     + "TOTAL_SALES_AMT = TOTAL_SALES_AMT + ?, "
@@ -239,6 +246,42 @@ public class SalesEditDaoImpl implements SalesEditDao {
         } catch (SQLException e) {
             logger.error("reconcileSummary: SQL exception while reconciling sales total summary", e);
             throw new RuntimeException("Failed to reconcile sales total summary", e);
+        }
+    }
+
+    @Override
+    public void updateSalesRowCustomerName(Long salesId, Long clientId, String customerName,
+                                           String buyerId, Connection conn) {
+        logger.info("updateSalesRowCustomerName: salesId={}, clientId={}, customerName={}, buyerId={}",
+                salesId, clientId, customerName, buyerId);
+        try (PreparedStatement ps = conn.prepareStatement(UPDATE_SALES_ROW_CUSTOMER_SQL)) {
+            ps.setString(1, customerName);
+            ps.setString(2, buyerId);
+            ps.setLong(3, salesId);
+            ps.setLong(4, clientId);
+            int updated = ps.executeUpdate();
+            if (updated == 0) {
+                throw new RuntimeException("No record found with SALES_ID=" + salesId);
+            }
+        } catch (SQLException e) {
+            logger.error("updateSalesRowCustomerName: SQL exception while updating sales row id={}", salesId, e);
+            throw new RuntimeException("Failed to update sales row customer name", e);
+        }
+    }
+
+    @Override
+    public void deleteSalesRow(Long salesId, Long clientId, Connection conn) {
+        logger.info("deleteSalesRow: salesId={}, clientId={}", salesId, clientId);
+        try (PreparedStatement ps = conn.prepareStatement(DELETE_SALES_ROW_SQL)) {
+            ps.setLong(1, salesId);
+            ps.setLong(2, clientId);
+            int updated = ps.executeUpdate();
+            if (updated == 0) {
+                throw new RuntimeException("No record found with SALES_ID=" + salesId);
+            }
+        } catch (SQLException e) {
+            logger.error("deleteSalesRow: SQL exception while deleting sales row id={}", salesId, e);
+            throw new RuntimeException("Failed to delete sales row", e);
         }
     }
 }

@@ -158,8 +158,6 @@ public class MultiSalesEntryServiceImpl implements MultiSalesEntryService {
             entities.add(sales);
         }
 
-        validateBagCounts(clientId, date, entities);
-
         BigDecimal grandTotal = entities.stream()
                 .map(Sales::getPrice)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
@@ -362,6 +360,7 @@ public class MultiSalesEntryServiceImpl implements MultiSalesEntryService {
             map.put("price", RoundOffUtil.round(s.getPerKgRate()));
             map.put("amount", RoundOffUtil.round(s.getPrice()));
             map.put("customerName", s.getCustName());
+            map.put("bagCount", s.getBagCount());
             map.put("saleSlotId", s.getSaleSlotId());
             result.add(map);
         }
@@ -417,29 +416,35 @@ public class MultiSalesEntryServiceImpl implements MultiSalesEntryService {
     }
 
     private void validateBagCounts(Long clientId, LocalDate date, List<Sales> entities) {
-        Map<String, Integer> bagByFlower = new LinkedHashMap<>();
+        Map<String, Integer> bagByFarmerFlower = new LinkedHashMap<>();
         for (Sales sales : entities) {
+            if (sales.getFarmerId() == null || sales.getFarmerId().trim().isEmpty()) {
+                continue;
+            }
             if (sales.getBagCount() == null || sales.getBagCount() <= 0) {
                 continue;
             }
-            bagByFlower.merge(sales.getFlowerId(), sales.getBagCount(), Integer::sum);
+            String key = sales.getFarmerId() + "|" + sales.getFlowerId();
+            bagByFarmerFlower.merge(key, sales.getBagCount(), Integer::sum);
         }
-        for (Map.Entry<String, Integer> entry : bagByFlower.entrySet()) {
-            String flowerId = entry.getKey();
-            if (flowerId == null) {
+        for (Map.Entry<String, Integer> entry : bagByFarmerFlower.entrySet()) {
+            String key = entry.getKey();
+            String farmerId = key.substring(0, key.indexOf('|'));
+            String flowerId = key.substring(key.indexOf('|') + 1);
+            if (flowerId == null || flowerId.isEmpty()) {
                 continue;
             }
             int sessionTotal = entry.getValue();
-            Map<String, Object> config = bagCountConfigService.getConfig(clientId, flowerId, date);
+            Map<String, Object> config = bagCountConfigService.getConfig(clientId, farmerId, flowerId, date);
             if (config == null) {
                 continue;
             }
-            String bagCheck = config.get("bagCheck") == null ? "" : String.valueOf(config.get("bagCheck"));
-            if (!"E".equalsIgnoreCase(bagCheck)) {
+            Object limitObj = config.get("bagCount");
+            if (limitObj == null || ((Number) limitObj).intValue() <= 0) {
                 continue;
             }
-            int configuredLimit = config.get("bagCount") == null ? 0 : ((Number) config.get("bagCount")).intValue();
-            int savedTotal = bagCountConfigService.getSavedBagTotal(clientId, flowerId, date);
+            int configuredLimit = ((Number) limitObj).intValue();
+            int savedTotal = bagCountConfigService.getSavedBagTotal(clientId, farmerId, flowerId, date);
             if (savedTotal + sessionTotal > configuredLimit) {
                 String flowerName = config.get("flowerName") == null ? flowerId : String.valueOf(config.get("flowerName"));
                 throw new IllegalArgumentException(

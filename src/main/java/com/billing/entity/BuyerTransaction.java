@@ -1,8 +1,11 @@
 package com.billing.entity;
 
+import jakarta.persistence.Table;
+
 import java.math.BigDecimal;
 import java.time.LocalDate;
 
+@Table(name = "BLOOMBUDDY_BUYER_TRANSACTION")
 public class BuyerTransaction {
 
     private Long buyerTransactionId;

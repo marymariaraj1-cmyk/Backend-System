@@ -100,11 +100,17 @@ public class DashboardServiceImpl implements DashboardService {
         kpis.put("activeBuyers", 0);
         kpis.put("yesterdaySales", BigDecimal.ZERO);
         kpis.put("yesterdayCommission", BigDecimal.ZERO);
+        kpis.put("todayPakki", BigDecimal.ZERO);
+        kpis.put("todayVaravu", BigDecimal.ZERO);
+        kpis.put("salesWithDeduction", BigDecimal.ZERO);
+        kpis.put("salesWithoutDeduction", BigDecimal.ZERO);
         data.setKpis(kpis);
         Map<String, Object> counts = new LinkedHashMap<>();
         counts.put("farmers", 0);
         counts.put("buyers", 0);
         counts.put("flowers", 0);
+        counts.put("inactiveFarmers", 0);
+        counts.put("inactiveBuyers", 0);
         data.setMasterCounts(counts);
         return data;
     }

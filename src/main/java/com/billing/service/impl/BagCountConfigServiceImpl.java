@@ -1,7 +1,6 @@
 package com.billing.service.impl;
 
 import com.billing.dao.BagCountConfigDao;
-import com.billing.dao.FlowerMasterDao;
 import com.billing.service.BagCountConfigService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -17,11 +16,9 @@ public class BagCountConfigServiceImpl implements BagCountConfigService {
     private static final Logger logger = LoggerFactory.getLogger(BagCountConfigServiceImpl.class);
 
     private final BagCountConfigDao bagCountConfigDao;
-    private final FlowerMasterDao flowerMasterDao;
 
-    public BagCountConfigServiceImpl(BagCountConfigDao bagCountConfigDao, FlowerMasterDao flowerMasterDao) {
+    public BagCountConfigServiceImpl(BagCountConfigDao bagCountConfigDao) {
         this.bagCountConfigDao = bagCountConfigDao;
-        this.flowerMasterDao = flowerMasterDao;
     }
 
     @Override
@@ -30,34 +27,41 @@ public class BagCountConfigServiceImpl implements BagCountConfigService {
     }
 
     @Override
+    public List<Map<String, Object>> getFarmers(Long clientId) {
+        return bagCountConfigDao.findAllFarmers(clientId);
+    }
+
+    @Override
     public List<Map<String, Object>> getConfigs(Long clientId) {
-        List<Map<String, Object>> configs = bagCountConfigDao.findAll(clientId);
-        return configs;
+        return bagCountConfigDao.findAll(clientId);
     }
 
     @Override
-    public Map<String, Object> getConfig(Long clientId, String flowerId, LocalDate salesDate) {
-        return bagCountConfigDao.findByFlowerAndDate(clientId, flowerId, salesDate);
+    public Map<String, Object> getConfig(Long clientId, String farmerId, String flowerId, LocalDate salesDate) {
+        return bagCountConfigDao.findByFarmerFlowerAndDate(clientId, farmerId, flowerId, salesDate);
     }
 
     @Override
-    public void saveConfig(Long clientId, String clientUsername, String flowerId, String flowerName,
-                           LocalDate salesDate, Integer bagCount, String bagCheck) {
-        String check = (bagCheck == null || bagCheck.trim().isEmpty()) ? "D" : bagCheck.trim().toUpperCase();
-        if (!check.equals("E") && !check.equals("D")) {
-            check = "D";
-        }
-        bagCountConfigDao.upsert(clientId, clientUsername, flowerId, flowerName, salesDate, bagCount, check);
+    public List<Map<String, Object>> getConfigReport(Long clientId, String farmerId,
+                                                     LocalDate fromDate, LocalDate toDate) {
+        return bagCountConfigDao.findForReport(clientId, farmerId, fromDate, toDate);
     }
 
     @Override
-    public void deleteConfig(Long clientId, String flowerId, LocalDate salesDate) {
-        bagCountConfigDao.delete(clientId, flowerId, salesDate);
+    public void saveConfig(Long clientId, String clientUsername, String farmerId, String farmerName,
+                           String flowerId, String flowerName, LocalDate salesDate, Integer bagCount) {
+        bagCountConfigDao.upsert(clientId, clientUsername, farmerId, farmerName,
+                flowerId, flowerName, salesDate, bagCount);
     }
 
     @Override
-    public int getSavedBagTotal(Long clientId, String flowerId, LocalDate salesDate) {
-        Integer total = bagCountConfigDao.sumBagCountForFlowerAndDate(clientId, flowerId, salesDate);
+    public void deleteConfig(Long clientId, String farmerId, String flowerId, LocalDate salesDate) {
+        bagCountConfigDao.delete(clientId, farmerId, flowerId, salesDate);
+    }
+
+    @Override
+    public int getSavedBagTotal(Long clientId, String farmerId, String flowerId, LocalDate salesDate) {
+        Integer total = bagCountConfigDao.sumBagCountForFarmerFlowerAndDate(clientId, farmerId, flowerId, salesDate);
         return total == null ? 0 : total;
     }
 }

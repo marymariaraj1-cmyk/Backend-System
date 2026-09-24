@@ -31,25 +31,40 @@ public class BagCountConfigDaoImpl implements BagCountConfigDao {
             "SELECT FLOWER_ID, FLOWER_NAME FROM BLOOMBUDDY_FLOWER_MASTER " +
             "WHERE CLIENT_ID = ? ORDER BY FLOWER_NAME ASC";
 
-    private static final String FIND_ALL =
-            "SELECT CONFIG_ID, FLOWER_ID, FLOWER_NAME, SALES_DATE, BAG_COUNT, BAG_CHECK " +
-            "FROM BLOOMBUDDY_BAG_COUNT_CONFIG WHERE CLIENT_ID = ? ORDER BY SALES_DATE DESC, FLOWER_NAME ASC";
+    private static final String FIND_ALL_FARMERS =
+            "SELECT FARMER_ID, FARMER_NAME FROM BLOOMBUDDY_FARMER_MASTER " +
+            "WHERE CLIENT_ID = ? ORDER BY FARMER_NAME ASC";
 
-    private static final String FIND_BY_FLOWER_DATE =
-            "SELECT CONFIG_ID, FLOWER_ID, FLOWER_NAME, SALES_DATE, BAG_COUNT, BAG_CHECK " +
-            "FROM BLOOMBUDDY_BAG_COUNT_CONFIG WHERE CLIENT_ID = ? AND FLOWER_ID = ? AND SALES_DATE = ? LIMIT 1";
+    private static final String FIND_ALL =
+            "SELECT CONFIG_ID, FARMER_ID, FARMER_NAME, FLOWER_ID, FLOWER_NAME, SALES_DATE, BAG_COUNT " +
+            "FROM BLOOMBUDDY_BAG_COUNT_CONFIG WHERE CLIENT_ID = ? " +
+            "ORDER BY SALES_DATE DESC, FARMER_NAME ASC, FLOWER_NAME ASC";
+
+    private static final String FIND_BY_FARMER_FLOWER_DATE =
+            "SELECT CONFIG_ID, FARMER_ID, FARMER_NAME, FLOWER_ID, FLOWER_NAME, SALES_DATE, BAG_COUNT " +
+            "FROM BLOOMBUDDY_BAG_COUNT_CONFIG " +
+            "WHERE CLIENT_ID = ? AND FARMER_ID = ? AND FLOWER_ID = ? AND SALES_DATE = ? LIMIT 1";
+
+    private static final String FIND_FOR_REPORT =
+            "SELECT CONFIG_ID, FARMER_ID, FARMER_NAME, FLOWER_ID, FLOWER_NAME, SALES_DATE, BAG_COUNT " +
+            "FROM BLOOMBUDDY_BAG_COUNT_CONFIG " +
+            "WHERE CLIENT_ID = ? AND FARMER_ID = ? AND SALES_DATE BETWEEN ? AND ? " +
+            "ORDER BY SALES_DATE ASC, FLOWER_NAME ASC";
 
     private static final String UPSERT =
-            "INSERT INTO BLOOMBUDDY_BAG_COUNT_CONFIG (CLIENT_ID, CLIENT_USERNAME, FLOWER_ID, FLOWER_NAME, SALES_DATE, BAG_COUNT, BAG_CHECK) " +
-            "VALUES (?, ?, ?, ?, ?, ?, ?) " +
-            "ON DUPLICATE KEY UPDATE FLOWER_NAME = VALUES(FLOWER_NAME), BAG_COUNT = VALUES(BAG_COUNT), BAG_CHECK = VALUES(BAG_CHECK)";
+            "INSERT INTO BLOOMBUDDY_BAG_COUNT_CONFIG " +
+            "(CLIENT_ID, CLIENT_USERNAME, FARMER_ID, FARMER_NAME, FLOWER_ID, FLOWER_NAME, SALES_DATE, BAG_COUNT) " +
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?) " +
+            "ON DUPLICATE KEY UPDATE FARMER_NAME = VALUES(FARMER_NAME), FLOWER_NAME = VALUES(FLOWER_NAME), " +
+            "BAG_COUNT = BAG_COUNT + VALUES(BAG_COUNT)";
 
     private static final String DELETE =
-            "DELETE FROM BLOOMBUDDY_BAG_COUNT_CONFIG WHERE CLIENT_ID = ? AND FLOWER_ID = ? AND SALES_DATE = ?";
+            "DELETE FROM BLOOMBUDDY_BAG_COUNT_CONFIG " +
+            "WHERE CLIENT_ID = ? AND FARMER_ID = ? AND FLOWER_ID = ? AND SALES_DATE = ?";
 
     private static final String SUM_BAG_COUNT =
             "SELECT COALESCE(SUM(BAG_COUNT), 0) FROM BLOOMBUDDY_SALES " +
-            "WHERE CLIENT_ID = ? AND FLOWER_ID = ? AND SALES_DATE = ?";
+            "WHERE CLIENT_ID = ? AND FARMER_ID = ? AND FLOWER_ID = ? AND SALES_DATE = ?";
 
     @Override
     public List<Map<String, Object>> findAllFlowers(Long clientId) {
@@ -74,6 +89,28 @@ public class BagCountConfigDaoImpl implements BagCountConfigDao {
     }
 
     @Override
+    public List<Map<String, Object>> findAllFarmers(Long clientId) {
+        logger.info("findAllFarmers: clientId={}", clientId);
+        List<Map<String, Object>> results = new ArrayList<>();
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement ps = conn.prepareStatement(FIND_ALL_FARMERS)) {
+            ps.setLong(1, clientId);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    Map<String, Object> row = new LinkedHashMap<>();
+                    row.put("farmerId", rs.getString("FARMER_ID"));
+                    row.put("farmerName", rs.getString("FARMER_NAME"));
+                    results.add(row);
+                }
+            }
+        } catch (SQLException e) {
+            logger.error("findAllFarmers: SQL exception", e);
+            throw new RuntimeException("Failed to fetch farmers", e);
+        }
+        return results;
+    }
+
+    @Override
     public List<Map<String, Object>> findAll(Long clientId) {
         logger.info("findAll: clientId={}", clientId);
         List<Map<String, Object>> results = new ArrayList<>();
@@ -93,43 +130,67 @@ public class BagCountConfigDaoImpl implements BagCountConfigDao {
     }
 
     @Override
-    public Map<String, Object> findByFlowerAndDate(Long clientId, String flowerId, LocalDate salesDate) {
-        logger.info("findByFlowerAndDate: clientId={}, flowerId={}, date={}", clientId, flowerId, salesDate);
+    public Map<String, Object> findByFarmerFlowerAndDate(Long clientId, String farmerId,
+                                                         String flowerId, LocalDate salesDate) {
+        logger.info("findByFarmerFlowerAndDate: clientId={}, farmerId={}, flowerId={}, date={}",
+                clientId, farmerId, flowerId, salesDate);
         try (Connection conn = dataSource.getConnection();
-             PreparedStatement ps = conn.prepareStatement(FIND_BY_FLOWER_DATE)) {
+             PreparedStatement ps = conn.prepareStatement(FIND_BY_FARMER_FLOWER_DATE)) {
             ps.setLong(1, clientId);
-            ps.setString(2, flowerId);
-            ps.setDate(3, java.sql.Date.valueOf(salesDate));
+            ps.setString(2, farmerId);
+            ps.setString(3, flowerId);
+            ps.setDate(4, java.sql.Date.valueOf(salesDate));
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) {
                     return mapRow(rs);
                 }
             }
         } catch (SQLException e) {
-            logger.error("findByFlowerAndDate: SQL exception", e);
+            logger.error("findByFarmerFlowerAndDate: SQL exception", e);
             throw new RuntimeException("Failed to fetch bag count config", e);
         }
         return null;
     }
 
     @Override
-    public Map<String, Object> findConfig(Long clientId, String flowerId, LocalDate salesDate) {
-        return findByFlowerAndDate(clientId, flowerId, salesDate);
+    public List<Map<String, Object>> findForReport(Long clientId, String farmerId,
+                                                   LocalDate fromDate, LocalDate toDate) {
+        logger.info("findForReport: clientId={}, farmerId={}, from={}, to={}",
+                clientId, farmerId, fromDate, toDate);
+        List<Map<String, Object>> results = new ArrayList<>();
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement ps = conn.prepareStatement(FIND_FOR_REPORT)) {
+            ps.setLong(1, clientId);
+            ps.setString(2, farmerId);
+            ps.setDate(3, java.sql.Date.valueOf(fromDate));
+            ps.setDate(4, java.sql.Date.valueOf(toDate));
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    results.add(mapRow(rs));
+                }
+            }
+        } catch (SQLException e) {
+            logger.error("findForReport: SQL exception", e);
+            throw new RuntimeException("Failed to fetch bag count config report", e);
+        }
+        return results;
     }
 
     @Override
-    public void upsert(Long clientId, String clientUsername, String flowerId, String flowerName,
-                       LocalDate salesDate, Integer bagCount, String bagCheck) {
-        logger.info("upsert: clientId={}, flowerId={}, date={}, bagCount={}, bagCheck={}", clientId, flowerId, salesDate, bagCount, bagCheck);
+    public void upsert(Long clientId, String clientUsername, String farmerId, String farmerName,
+                       String flowerId, String flowerName, LocalDate salesDate, Integer bagCount) {
+        logger.info("upsert: clientId={}, farmerId={}, flowerId={}, date={}, bagCount={}",
+                clientId, farmerId, flowerId, salesDate, bagCount);
         try (Connection conn = dataSource.getConnection();
              PreparedStatement ps = conn.prepareStatement(UPSERT)) {
             ps.setLong(1, clientId);
             ps.setString(2, clientUsername);
-            ps.setString(3, flowerId);
-            ps.setString(4, flowerName);
-            ps.setDate(5, java.sql.Date.valueOf(salesDate));
-            ps.setInt(6, bagCount == null ? 0 : bagCount);
-            ps.setString(7, bagCheck);
+            ps.setString(3, farmerId);
+            ps.setString(4, farmerName);
+            ps.setString(5, flowerId);
+            ps.setString(6, flowerName);
+            ps.setDate(7, java.sql.Date.valueOf(salesDate));
+            ps.setInt(8, bagCount == null ? 0 : bagCount);
             ps.executeUpdate();
         } catch (SQLException e) {
             logger.error("upsert: SQL exception", e);
@@ -138,13 +199,15 @@ public class BagCountConfigDaoImpl implements BagCountConfigDao {
     }
 
     @Override
-    public void delete(Long clientId, String flowerId, LocalDate salesDate) {
-        logger.info("delete: clientId={}, flowerId={}, date={}", clientId, flowerId, salesDate);
+    public void delete(Long clientId, String farmerId, String flowerId, LocalDate salesDate) {
+        logger.info("delete: clientId={}, farmerId={}, flowerId={}, date={}",
+                clientId, farmerId, flowerId, salesDate);
         try (Connection conn = dataSource.getConnection();
              PreparedStatement ps = conn.prepareStatement(DELETE)) {
             ps.setLong(1, clientId);
-            ps.setString(2, flowerId);
-            ps.setDate(3, java.sql.Date.valueOf(salesDate));
+            ps.setString(2, farmerId);
+            ps.setString(3, flowerId);
+            ps.setDate(4, java.sql.Date.valueOf(salesDate));
             ps.executeUpdate();
         } catch (SQLException e) {
             logger.error("delete: SQL exception", e);
@@ -153,20 +216,23 @@ public class BagCountConfigDaoImpl implements BagCountConfigDao {
     }
 
     @Override
-    public Integer sumBagCountForFlowerAndDate(Long clientId, String flowerId, LocalDate salesDate) {
-        logger.info("sumBagCountForFlowerAndDate: clientId={}, flowerId={}, date={}", clientId, flowerId, salesDate);
+    public Integer sumBagCountForFarmerFlowerAndDate(Long clientId, String farmerId,
+                                                     String flowerId, LocalDate salesDate) {
+        logger.info("sumBagCountForFarmerFlowerAndDate: clientId={}, farmerId={}, flowerId={}, date={}",
+                clientId, farmerId, flowerId, salesDate);
         try (Connection conn = dataSource.getConnection();
              PreparedStatement ps = conn.prepareStatement(SUM_BAG_COUNT)) {
             ps.setLong(1, clientId);
-            ps.setString(2, flowerId);
-            ps.setDate(3, java.sql.Date.valueOf(salesDate));
+            ps.setString(2, farmerId);
+            ps.setString(3, flowerId);
+            ps.setDate(4, java.sql.Date.valueOf(salesDate));
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) {
                     return rs.getInt(1);
                 }
             }
         } catch (SQLException e) {
-            logger.error("sumBagCountForFlowerAndDate: SQL exception", e);
+            logger.error("sumBagCountForFarmerFlowerAndDate: SQL exception", e);
             throw new RuntimeException("Failed to sum bag count", e);
         }
         return 0;
@@ -175,12 +241,13 @@ public class BagCountConfigDaoImpl implements BagCountConfigDao {
     private Map<String, Object> mapRow(ResultSet rs) throws SQLException {
         Map<String, Object> row = new LinkedHashMap<>();
         row.put("configId", rs.getLong("CONFIG_ID"));
+        row.put("farmerId", rs.getString("FARMER_ID"));
+        row.put("farmerName", rs.getString("FARMER_NAME"));
         row.put("flowerId", rs.getString("FLOWER_ID"));
         row.put("flowerName", rs.getString("FLOWER_NAME"));
         java.sql.Date date = rs.getDate("SALES_DATE");
         row.put("salesDate", date == null ? null : date.toLocalDate());
         row.put("bagCount", rs.getInt("BAG_COUNT"));
-        row.put("bagCheck", rs.getString("BAG_CHECK"));
         return row;
     }
 }

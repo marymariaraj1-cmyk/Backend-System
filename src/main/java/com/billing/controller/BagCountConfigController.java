@@ -30,6 +30,12 @@ public class BagCountConfigController {
         return ResponseEntity.ok(ApiResponse.success("OK", bagCountConfigService.getFlowers(clientId)));
     }
 
+    @GetMapping("/farmers")
+    public ResponseEntity<ApiResponse<List<Map<String, Object>>>> getFarmers() {
+        Long clientId = SessionConfig.getCurrentClientId();
+        return ResponseEntity.ok(ApiResponse.success("OK", bagCountConfigService.getFarmers(clientId)));
+    }
+
     @GetMapping("/list")
     public ResponseEntity<ApiResponse<List<Map<String, Object>>>> getConfigs() {
         Long clientId = SessionConfig.getCurrentClientId();
@@ -38,21 +44,46 @@ public class BagCountConfigController {
 
     @GetMapping
     public ResponseEntity<ApiResponse<Map<String, Object>>> getConfig(
-            @RequestParam String flowerId, @RequestParam String salesDate) {
+            @RequestParam String farmerId, @RequestParam String flowerId, @RequestParam String salesDate) {
         Long clientId = SessionConfig.getCurrentClientId();
         LocalDate date = parseDate(salesDate);
-        return ResponseEntity.ok(ApiResponse.success("OK", bagCountConfigService.getConfig(clientId, flowerId, date)));
+        return ResponseEntity.ok(ApiResponse.success("OK",
+                bagCountConfigService.getConfig(clientId, farmerId, flowerId, date)));
+    }
+
+    @GetMapping("/report")
+    public ResponseEntity<ApiResponse<List<Map<String, Object>>>> getReport(
+            @RequestParam String farmerId, @RequestParam String fromDate, @RequestParam String toDate) {
+        Long clientId = SessionConfig.getCurrentClientId();
+        LocalDate from = parseDate(fromDate);
+        LocalDate to = parseDate(toDate);
+        if (from == null || to == null) {
+            return ResponseEntity.badRequest().body(ApiResponse.error("From date and To date are required"));
+        }
+        if (from.isAfter(to)) {
+            return ResponseEntity.badRequest().body(ApiResponse.error("From date must not be after To date"));
+        }
+        return ResponseEntity.ok(ApiResponse.success("OK",
+                bagCountConfigService.getConfigReport(clientId, farmerId, from, to)));
     }
 
     @PostMapping("/save")
     public ResponseEntity<ApiResponse<Void>> saveConfig(@RequestBody Map<String, String> request) {
         Long clientId = SessionConfig.getCurrentClientId();
         String clientUsername = SessionConfig.getCurrentClientUsername();
+        String farmerId = request.get("farmerId");
+        String farmerName = request.get("farmerName");
+        if (farmerId == null || farmerId.trim().isEmpty()) {
+            return ResponseEntity.badRequest().body(ApiResponse.error("Farmer id is required"));
+        }
+        if (farmerName == null || farmerName.trim().isEmpty()) {
+            return ResponseEntity.badRequest().body(ApiResponse.error("Farmer name is required"));
+        }
         String flowerId = request.get("flowerId");
-        String flowerName = request.get("flowerName");
         if (flowerId == null || flowerId.trim().isEmpty()) {
             return ResponseEntity.badRequest().body(ApiResponse.error("Flower id is required"));
         }
+        String flowerName = request.get("flowerName");
         if (flowerName == null || flowerName.trim().isEmpty()) {
             return ResponseEntity.badRequest().body(ApiResponse.error("Flower name is required"));
         }
@@ -61,30 +92,29 @@ public class BagCountConfigController {
             return ResponseEntity.badRequest().body(ApiResponse.error("Sales date is required"));
         }
         Integer bagCount = parseInteger(request.get("bagCount"));
-        String bagCheck = request.get("bagCheck");
-        bagCountConfigService.saveConfig(clientId, clientUsername, flowerId.trim(), flowerName.trim(),
-                salesDate, bagCount, bagCheck);
+        bagCountConfigService.saveConfig(clientId, clientUsername,
+                farmerId.trim(), farmerName.trim(), flowerId.trim(), flowerName.trim(), salesDate, bagCount);
         return ResponseEntity.ok(ApiResponse.success("Bag count configuration saved successfully", null));
     }
 
     @DeleteMapping
     public ResponseEntity<ApiResponse<Void>> deleteConfig(
-            @RequestParam String flowerId, @RequestParam String salesDate) {
+            @RequestParam String farmerId, @RequestParam String flowerId, @RequestParam String salesDate) {
         Long clientId = SessionConfig.getCurrentClientId();
         LocalDate date = parseDate(salesDate);
         if (date == null) {
             return ResponseEntity.badRequest().body(ApiResponse.error("Sales date is required"));
         }
-        bagCountConfigService.deleteConfig(clientId, flowerId, date);
+        bagCountConfigService.deleteConfig(clientId, farmerId, flowerId, date);
         return ResponseEntity.ok(ApiResponse.success("Bag count configuration deleted successfully", null));
     }
 
     @GetMapping("/saved-total")
     public ResponseEntity<ApiResponse<Map<String, Object>>> getSavedTotal(
-            @RequestParam String flowerId, @RequestParam String salesDate) {
+            @RequestParam String farmerId, @RequestParam String flowerId, @RequestParam String salesDate) {
         Long clientId = SessionConfig.getCurrentClientId();
         LocalDate date = parseDate(salesDate);
-        int total = bagCountConfigService.getSavedBagTotal(clientId, flowerId, date);
+        int total = bagCountConfigService.getSavedBagTotal(clientId, farmerId, flowerId, date);
         return ResponseEntity.ok(ApiResponse.success("OK", java.util.Map.of("total", total)));
     }
 

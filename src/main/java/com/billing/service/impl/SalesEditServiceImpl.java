@@ -1,11 +1,13 @@
 package com.billing.service.impl;
 
 import com.billing.dao.BuyerLedgerDao;
+import com.billing.dao.BuyerMasterDao;
 import com.billing.dao.FarmerLedgerDao;
 import com.billing.dao.FarmerMasterDao;
 import com.billing.dao.FlowerMasterDao;
 import com.billing.dao.SalesEditDao;
 import com.billing.dao.SalesTotalSummaryDao;
+import com.billing.dto.SalesEditDeleteRequestDto;
 import com.billing.dto.SalesEditRequestDto;
 import com.billing.dto.SalesEditRowDto;
 import com.billing.entity.BuyerLedger;
@@ -57,6 +59,7 @@ public class SalesEditServiceImpl implements SalesEditService {
     private final FlowerMasterDao flowerMasterDao;
     private final FarmerLedgerDao farmerLedgerDao;
     private final BuyerLedgerDao buyerLedgerDao;
+    private final BuyerMasterDao buyerMasterDao;
     private final SalesTotalSummaryDao salesTotalSummaryDao;
     private final SalesEditDao salesEditDao;
     private final LedgerSettlementService ledgerSettlementService;
@@ -68,6 +71,7 @@ public class SalesEditServiceImpl implements SalesEditService {
                                 FlowerMasterDao flowerMasterDao,
                                 FarmerLedgerDao farmerLedgerDao,
                                 BuyerLedgerDao buyerLedgerDao,
+                                BuyerMasterDao buyerMasterDao,
                                 SalesTotalSummaryDao salesTotalSummaryDao,
                                 SalesEditDao salesEditDao,
                                 LedgerSettlementService ledgerSettlementService,
@@ -77,6 +81,7 @@ public class SalesEditServiceImpl implements SalesEditService {
         this.flowerMasterDao = flowerMasterDao;
         this.farmerLedgerDao = farmerLedgerDao;
         this.buyerLedgerDao = buyerLedgerDao;
+        this.buyerMasterDao = buyerMasterDao;
         this.salesTotalSummaryDao = salesTotalSummaryDao;
         this.salesEditDao = salesEditDao;
         this.ledgerSettlementService = ledgerSettlementService;
@@ -88,6 +93,7 @@ public class SalesEditServiceImpl implements SalesEditService {
         Map<String, List<String>> data = new HashMap<>();
         data.put("farmers", farmerMasterDao.findNamesByClientId(clientId));
         data.put("flowers", flowerMasterDao.findNamesByClientId(clientId));
+        data.put("buyers", buyerMasterDao.findNamesByClientId(clientId));
         return data;
     }
 
@@ -204,6 +210,12 @@ public class SalesEditServiceImpl implements SalesEditService {
                         ? new BigDecimal(String.valueOf(existing.get("price"))) : BigDecimal.ZERO;
                 BigDecimal delta = newAmount.subtract(oldAmount);
 
+                String oldCustomerName = existing.get("customerName") != null
+                        ? String.valueOf(existing.get("customerName")) : "";
+                String newCustomer = row.getCustomerName();
+                boolean customerChanged = newCustomer != null && !newCustomer.trim().isEmpty()
+                        && !newCustomer.trim().equalsIgnoreCase(oldCustomerName);
+
                 String flowerId = flowerMasterDao.findIdByNameAndClientId(clientId, row.getFlowerType().trim());
                 Integer bagCount = row.getBagCount();
 
@@ -212,7 +224,7 @@ public class SalesEditServiceImpl implements SalesEditService {
                 boolean flowerChanged = existing.get("flowerType") == null
                         || !String.valueOf(existing.get("flowerType")).trim().equalsIgnoreCase(row.getFlowerType().trim());
 
-                if (delta.compareTo(BigDecimal.ZERO) == 0 && !bagChanged && !flowerChanged) {
+                if (delta.compareTo(BigDecimal.ZERO) == 0 && !bagChanged && !flowerChanged && !customerChanged) {
                     logger.info("saveEdits: no change for salesId={}, skipping", row.getSalesId());
                     continue;
                 }
@@ -222,20 +234,48 @@ public class SalesEditServiceImpl implements SalesEditService {
 
                 // Bag count validation for edits: account for the edited value replacing the old one
                 if (bagCount != null && bagCount > 0 && flowerId != null) {
-                    validateEditedBagCount(clientId, date, flowerId, row.getSalesId(), oldBag, bagCount);
+                    String existingFarmerId = existing.get("farmerId") != null
+                            ? String.valueOf(existing.get("farmerId")) : null;
+                    validateEditedBagCount(clientId, date, existingFarmerId, flowerId, oldBag, bagCount);
                 }
 
                 totalRowDelta = totalRowDelta.add(delta);
 
-                String buyerId = existing.get("buyerId") != null ? String.valueOf(existing.get("buyerId")) : null;
-                String customerName = existing.get("customerName") != null ? String.valueOf(existing.get("customerName")) : "";
-                if (buyerId != null && !buyerId.isEmpty()) {
-                    boolean isDirect = isDirectPayment(customerName);
-                    BuyerDelta bd = buyerDeltas.computeIfAbsent(buyerId, k -> new BuyerDelta(customerName));
-                    if (isDirect) {
-                        bd.creditDelta = bd.creditDelta.add(delta);
-                    } else {
-                        bd.debitDelta = bd.debitDelta.add(delta);
+                if (customerChanged) {
+                    String newBuyerId = buyerMasterDao.findIdByNameAndClientId(clientId, newCustomer.trim());
+                    if (newBuyerId == null) {
+                        throw new IllegalArgumentException(
+                                "Buyer '" + newCustomer.trim() + "' not found in Buyer Master. Please add it there first.");
+                    }
+                    if (checkedBuyers.add(newBuyerId)) {
+                        String newBuyerActive = buyerLedgerDao.findLedgerActive(clientId, newBuyerId, date, conn);
+                        if (newBuyerActive == null || !"Y".equals(newBuyerActive)) {
+                            throw new IllegalArgumentException(
+                                    "This sales date belongs to a settled ledger period for the buyer and cannot be edited.");
+                        }
+                    }
+
+                    salesEditDao.updateSalesRowCustomerName(row.getSalesId(), clientId, newCustomer.trim(), newBuyerId, conn);
+
+                    if (rowBuyerId != null && !rowBuyerId.isEmpty()) {
+                        reverseBuyerLedger(clientId, clientUsername, rowBuyerId, oldCustomerName,
+                                date, oldAmount, row.getSalesId(), conn);
+                        ledgerSettlementService.settleBuyerIfClosed(clientId, rowBuyerId, date, conn);
+                    }
+                    applyBuyerLedger(clientId, clientUsername, newBuyerId, newCustomer.trim(),
+                            date, newAmount, row.getSalesId(), conn);
+                    ledgerSettlementService.settleBuyerIfClosed(clientId, newBuyerId, date, conn);
+                } else {
+                    String buyerId = existing.get("buyerId") != null ? String.valueOf(existing.get("buyerId")) : null;
+                    String customerName = oldCustomerName;
+                    if (buyerId != null && !buyerId.isEmpty()) {
+                        boolean isDirect = isDirectPayment(customerName);
+                        BuyerDelta bd = buyerDeltas.computeIfAbsent(buyerId, k -> new BuyerDelta(customerName));
+                        if (isDirect) {
+                            bd.creditDelta = bd.creditDelta.add(delta);
+                        } else {
+                            bd.debitDelta = bd.debitDelta.add(delta);
+                        }
                     }
                 }
             }
@@ -331,6 +371,202 @@ public class SalesEditServiceImpl implements SalesEditService {
         }
     }
 
+    @Override
+    public Map<String, Object> deleteSalesEntry(Long salesId, Long clientId, String clientUsername) {
+        logger.info("deleteSalesEntry: salesId={}, clientId={}", salesId, clientId);
+        if (salesId == null) {
+            throw new IllegalArgumentException("Sales ID is required");
+        }
+
+        Map<String, Object> existing = salesEditDao.findSalesRow(clientId, salesId);
+        if (existing == null) {
+            throw new IllegalArgumentException("Sales record not found for SALES_ID=" + salesId);
+        }
+
+        String farmerId = (String) existing.get("farmerId");
+        if (farmerId == null || farmerId.isEmpty()) {
+            throw new IllegalArgumentException("Sales record has no farmer reference for SALES_ID=" + salesId);
+        }
+        String farmerName = existing.get("farmerName") != null ? String.valueOf(existing.get("farmerName")) : "";
+        LocalDate salesDate = (LocalDate) existing.get("salesDate");
+        BigDecimal price = existing.get("price") != null
+                ? new BigDecimal(String.valueOf(existing.get("price"))) : BigDecimal.ZERO;
+        String buyerId = existing.get("buyerId") != null ? String.valueOf(existing.get("buyerId")) : null;
+        String customerName = existing.get("customerName") != null
+                ? String.valueOf(existing.get("customerName")) : "";
+
+        // Pre-fetch the remaining rows for the farmer+date BEFORE deleting, because fetchSales
+        // opens its own connection and would not see rows deleted inside this transaction.
+        List<Map<String, Object>> allRows = salesEditDao.fetchSales(clientId, farmerId, salesDate);
+        List<Map<String, Object>> remainingRows = new ArrayList<>();
+        BigDecimal recomputedTotal = BigDecimal.ZERO;
+        for (Map<String, Object> rowMap : allRows) {
+            Long rowId = rowMap.get("salesId") != null
+                    ? Long.valueOf(String.valueOf(rowMap.get("salesId"))) : null;
+            if (rowId != null && rowId.equals(salesId)) {
+                continue;
+            }
+            remainingRows.add(rowMap);
+            BigDecimal rowPrice = rowMap.get("price") != null
+                    ? new BigDecimal(String.valueOf(rowMap.get("price"))) : BigDecimal.ZERO;
+            recomputedTotal = recomputedTotal.add(rowPrice);
+        }
+
+        Connection conn = null;
+        try {
+            conn = dataSource.getConnection();
+            conn.setAutoCommit(false);
+
+            String farmerActive = farmerLedgerDao.findLedgerActive(clientId, farmerId, salesDate, conn);
+            if (farmerActive == null || !"Y".equals(farmerActive)) {
+                throw new IllegalArgumentException(
+                        "This sales date belongs to a settled ledger period and cannot be deleted.");
+            }
+
+            if (buyerId != null && !buyerId.isEmpty()) {
+                String buyerActive = buyerLedgerDao.findLedgerActive(clientId, buyerId, salesDate, conn);
+                if (buyerActive == null || !"Y".equals(buyerActive)) {
+                    throw new IllegalArgumentException(
+                            "This sales date belongs to a settled ledger period for the buyer and cannot be deleted.");
+                }
+
+                reverseBuyerLedger(clientId, clientUsername, buyerId, customerName,
+                        salesDate, price, salesId, conn);
+                ledgerSettlementService.settleBuyerIfClosed(clientId, buyerId, salesDate, conn);
+            }
+
+            salesEditDao.deleteSalesRow(salesId, clientId, conn);
+
+            // Remove this sales id from the farmer's day-level SALES_IDS reference column
+            FarmerLedger farmerLedger = farmerLedgerDao.findRow(clientId, farmerId, salesDate, conn);
+            if (farmerLedger != null) {
+                farmerLedgerDao.updateSalesIds(clientId, farmerId, salesDate,
+                        removeSalesId(farmerLedger.getSalesIds(), salesId), conn);
+            }
+
+            if (remainingRows.isEmpty()) {
+                // No remaining entries for this farmer+date -> remove the summary row entirely
+                salesTotalSummaryDao.deleteRow(clientId, farmerId, salesDate, conn);
+                if (farmerLedger != null) {
+                    farmerLedgerDao.setCreditAmt(clientId, clientUsername, farmerId, farmerName,
+                            salesDate, BigDecimal.ZERO, conn);
+                    farmerLedgerDao.deleteRowIfZero(clientId, farmerId, salesDate, conn);
+                }
+            } else {
+                BigDecimal newCommission = RoundOffUtil.round(recomputedTotal.multiply(TEN_PERCENT));
+                BigDecimal newNet = recomputedTotal.subtract(newCommission);
+                Map<String, Object> summaryRow = salesEditDao.fetchSummary(clientId, farmerId, salesDate);
+                BigDecimal newDebit = BigDecimal.ZERO;
+                if (summaryRow != null && summaryRow.get("debitAmt") != null) {
+                    newDebit = new BigDecimal(String.valueOf(summaryRow.get("debitAmt")));
+                }
+                BigDecimal newFinal = newNet.subtract(newDebit);
+
+                salesEditDao.reconcileSummary(clientId, clientUsername, farmerId, farmerName,
+                        salesDate, recomputedTotal, newCommission, newNet, newDebit, newFinal, conn);
+
+                if (farmerLedger != null) {
+                    farmerLedgerDao.setCreditAmt(clientId, clientUsername, farmerId, farmerName,
+                            salesDate, newFinal, conn);
+                } else {
+                    FarmerLedger freshLedger = new FarmerLedger();
+                    freshLedger.setClientId(clientId);
+                    freshLedger.setClientUsername(clientUsername);
+                    freshLedger.setFarmerId(farmerId);
+                    freshLedger.setFarmerName(farmerName);
+                    freshLedger.setSalesDate(salesDate);
+                    freshLedger.setDebitAmt(BigDecimal.ZERO);
+                    freshLedger.setCreditAmt(newFinal);
+                    farmerLedgerDao.insert(freshLedger, conn);
+                }
+            }
+
+            ledgerSettlementService.settleFarmerIfClosed(clientId, farmerId, salesDate, conn);
+
+            conn.commit();
+            logger.info("deleteSalesEntry: committed successfully for salesId={}", salesId);
+
+            Map<String, Object> result = new HashMap<>();
+            result.put("deletedSalesId", salesId);
+            result.put("remainingRows", remainingRows.size());
+            return result;
+
+        } catch (Exception e) {
+            logger.error("deleteSalesEntry: transaction failed, rolling back", e);
+            if (conn != null) {
+                try {
+                    conn.rollback();
+                    logger.info("deleteSalesEntry: transaction rolled back");
+                } catch (Exception rollbackEx) {
+                    logger.error("deleteSalesEntry: rollback failed", rollbackEx);
+                }
+            }
+            if (e instanceof IllegalArgumentException) {
+                throw (IllegalArgumentException) e;
+            }
+            throw new RuntimeException("Failed to delete sales entry", e);
+        } finally {
+            if (conn != null) {
+                try {
+                    conn.close();
+                } catch (Exception closeEx) {
+                    logger.error("deleteSalesEntry: error closing connection", closeEx);
+                }
+            }
+        }
+    }
+
+    private void reverseBuyerLedger(Long clientId, String clientUsername, String buyerId, String customerName,
+                                     LocalDate date, BigDecimal amount, Long salesId, Connection conn) {
+        boolean isDirect = isDirectPayment(customerName);
+        if (isDirect) {
+            buyerLedgerDao.decreaseCreditAmt(clientId, buyerId, date, amount, conn);
+        } else {
+            buyerLedgerDao.decreaseDebitAmt(clientId, buyerId, date, amount, conn);
+        }
+        BuyerLedger row = buyerLedgerDao.findRow(clientId, buyerId, date, conn);
+        String existingSalesIds = row != null ? row.getSalesIds() : null;
+        buyerLedgerDao.updateSalesIds(clientId, buyerId, date,
+                removeSalesId(existingSalesIds, salesId), conn);
+        buyerLedgerDao.deleteRowIfZero(clientId, buyerId, date, conn);
+    }
+
+    private void applyBuyerLedger(Long clientId, String clientUsername, String buyerId, String buyerName,
+                                   LocalDate date, BigDecimal amount, Long salesId, Connection conn) {
+        BuyerLedger ledger = new BuyerLedger();
+        ledger.setClientId(clientId);
+        ledger.setClientUsername(clientUsername);
+        ledger.setBuyerId(buyerId);
+        ledger.setBuyerName(buyerName);
+        ledger.setSalesDate(date);
+        boolean isDirect = isDirectPayment(buyerName);
+        if (isDirect) {
+            ledger.setCreditAmt(amount);
+            ledger.setDebitAmt(BigDecimal.ZERO);
+        } else {
+            ledger.setDebitAmt(amount);
+            ledger.setCreditAmt(BigDecimal.ZERO);
+        }
+        ledger.setDisAmt(BigDecimal.ZERO);
+        ledger.setSalesIds(String.valueOf(salesId));
+        buyerLedgerDao.insert(ledger, conn);
+    }
+
+    private String removeSalesId(String salesIds, Long salesId) {
+        if (salesIds == null || salesIds.trim().isEmpty()) {
+            return null;
+        }
+        String target = String.valueOf(salesId);
+        List<String> kept = new ArrayList<>();
+        for (String part : salesIds.split(",")) {
+            String p = part.trim();
+            if (!p.isEmpty() && !p.equals(target)) {
+                kept.add(p);
+            }
+        }
+        return kept.isEmpty() ? null : String.join(",", kept);
+    }
+
     private void applyDebitAdjustment(String debitAmountStr, Long clientId, String clientUsername,
                                        String farmerId, String farmerName, LocalDate date, Connection conn) {
         String farmerActive = farmerLedgerDao.findLedgerActive(clientId, farmerId, date, conn);
@@ -391,18 +627,21 @@ public class SalesEditServiceImpl implements SalesEditService {
         }
     }
 
-    private void validateEditedBagCount(Long clientId, LocalDate date, String flowerId,
-                                        Long salesId, Integer oldBag, Integer newBag) {
-        Map<String, Object> config = bagCountConfigService.getConfig(clientId, flowerId, date);
+    private void validateEditedBagCount(Long clientId, LocalDate date, String farmerId,
+                                        String flowerId, Integer oldBag, Integer newBag) {
+        if (farmerId == null || farmerId.trim().isEmpty()) {
+            return;
+        }
+        Map<String, Object> config = bagCountConfigService.getConfig(clientId, farmerId, flowerId, date);
         if (config == null) {
             return;
         }
-        String bagCheck = config.get("bagCheck") == null ? "" : String.valueOf(config.get("bagCheck"));
-        if (!"E".equalsIgnoreCase(bagCheck)) {
+        Object limitObj = config.get("bagCount");
+        if (limitObj == null || ((Number) limitObj).intValue() <= 0) {
             return;
         }
-        int configuredLimit = config.get("bagCount") == null ? 0 : ((Number) config.get("bagCount")).intValue();
-        int dayTotal = bagCountConfigService.getSavedBagTotal(clientId, flowerId, date);
+        int configuredLimit = ((Number) limitObj).intValue();
+        int dayTotal = bagCountConfigService.getSavedBagTotal(clientId, farmerId, flowerId, date);
         int adjustedTotal = dayTotal - (oldBag == null ? 0 : oldBag) + (newBag == null ? 0 : newBag);
         if (adjustedTotal > configuredLimit) {
             String flowerName = config.get("flowerName") == null ? flowerId : String.valueOf(config.get("flowerName"));

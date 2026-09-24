@@ -8,14 +8,18 @@ public interface BagCountConfigService {
 
     List<Map<String, Object>> getFlowers(Long clientId);
 
+    List<Map<String, Object>> getFarmers(Long clientId);
+
     List<Map<String, Object>> getConfigs(Long clientId);
 
-    Map<String, Object> getConfig(Long clientId, String flowerId, LocalDate salesDate);
+    Map<String, Object> getConfig(Long clientId, String farmerId, String flowerId, LocalDate salesDate);
 
-    void saveConfig(Long clientId, String clientUsername, String flowerId, String flowerName,
-                    LocalDate salesDate, Integer bagCount, String bagCheck);
+    List<Map<String, Object>> getConfigReport(Long clientId, String farmerId, LocalDate fromDate, LocalDate toDate);
 
-    void deleteConfig(Long clientId, String flowerId, LocalDate salesDate);
+    void saveConfig(Long clientId, String clientUsername, String farmerId, String farmerName,
+                    String flowerId, String flowerName, LocalDate salesDate, Integer bagCount);
 
-    int getSavedBagTotal(Long clientId, String flowerId, LocalDate salesDate);
+    void deleteConfig(Long clientId, String farmerId, String flowerId, LocalDate salesDate);
+
+    int getSavedBagTotal(Long clientId, String farmerId, String flowerId, LocalDate salesDate);
 }

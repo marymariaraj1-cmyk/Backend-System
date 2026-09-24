@@ -31,8 +31,11 @@ public class BagCountConfig {
     @Column(name = "BAG_COUNT", nullable = false)
     private Integer bagCount;
 
-    @Column(name = "BAG_CHECK", nullable = false, length = 1)
-    private String bagCheck;
+    @Column(name = "FARMER_ID", nullable = false, length = 60)
+    private String farmerId;
+
+    @Column(name = "FARMER_NAME", nullable = false, length = 100)
+    private String farmerName;
 
     public BagCountConfig() {
     }
@@ -93,11 +96,19 @@ public class BagCountConfig {
         this.bagCount = bagCount;
     }
 
-    public String getBagCheck() {
-        return bagCheck;
+    public String getFarmerId() {
+        return farmerId;
     }
 
-    public void setBagCheck(String bagCheck) {
-        this.bagCheck = bagCheck;
+    public void setFarmerId(String farmerId) {
+        this.farmerId = farmerId;
+    }
+
+    public String getFarmerName() {
+        return farmerName;
+    }
+
+    public void setFarmerName(String farmerName) {
+        this.farmerName = farmerName;
     }
 }

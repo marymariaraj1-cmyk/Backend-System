@@ -34,7 +34,8 @@ public class BuyerSalesReportDaoImpl implements BuyerSalesReportDao {
     private static final String SELECT_BUYER_SUMMARY_SQL =
             "SELECT BUYER_ID, CUST_NAME, SUM(TOTAL_WEIGHT) AS TOTAL_WEIGHT, SUM(PRICE) AS TOTAL_AMOUNT " +
             "FROM BLOOMBUDDY_SALES " +
-            "WHERE CLIENT_ID = ? AND CLIENT_USERNAME = ? AND SALES_DATE BETWEEN ? AND ? " +
+            "WHERE CLIENT_ID = ? AND CLIENT_USERNAME = ? AND BUYER_ID IS NOT NULL " +
+            "AND SALES_DATE BETWEEN ? AND ? " +
             "GROUP BY BUYER_ID, CUST_NAME " +
             "ORDER BY CUST_NAME ASC";
 
@@ -47,7 +48,8 @@ public class BuyerSalesReportDaoImpl implements BuyerSalesReportDao {
     private static final String SELECT_DETAIL_SQL =
             "SELECT SALES_ID, BUYER_ID, SALES_DATE, FLOWER_TYPE, TOTAL_WEIGHT, PERKG_RATE, PRICE, CUST_NAME " +
             "FROM BLOOMBUDDY_SALES " +
-            "WHERE CLIENT_ID = ? AND CLIENT_USERNAME = ? AND SALES_DATE BETWEEN ? AND ? " +
+            "WHERE CLIENT_ID = ? AND CLIENT_USERNAME = ? AND BUYER_ID IS NOT NULL " +
+            "AND SALES_DATE BETWEEN ? AND ? " +
             "ORDER BY SALES_DATE ASC";
 
     private final DataSource dataSource;

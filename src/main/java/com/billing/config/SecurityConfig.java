@@ -41,7 +41,9 @@ public class SecurityConfig {
                 .requestMatchers("/api/flowers/**", "/api/farmers/**", "/api/buyers/**", "/api/opening-balance/**",
                         "/api/sales/**", "/api/sales-edit/**", "/api/multi-sales/**",
                         "/api/farmer-transaction/**", "/api/buyer-transaction/**",
-                        "/api/farmer-account-check/**").hasRole("CLIENT")
+                        "/api/farmer-account-check/**",
+                        "/api/flower-price-config/**", "/api/flower-price/**", "/api/poc/**",
+                        "/api/client-profile/**").hasRole("CLIENT")
                 .anyRequest().permitAll())
             .exceptionHandling(ex -> ex
                 .authenticationEntryPoint(new JsonAuthenticationEntryPoint())

@@ -35,9 +35,14 @@ public class BuyerLedgerController {
     }
 
     @GetMapping("/buyer-ledger-list/data")
-    public ResponseEntity<ApiResponse<List<Map<String, Object>>>> getBuyerList() {
+    public ResponseEntity<ApiResponse<List<Map<String, Object>>>> getBuyerList(
+            @RequestParam(required = false, defaultValue = "false") boolean includeExcluded) {
         Long clientId = SessionConfig.getCurrentClientId();
         List<Map<String, Object>> all = buyerLedgerReportService.getBuyerList(clientId);
+        if (includeExcluded) {
+            // Buyer ledger report alone shows Cash / UPI payment buyers.
+            return ResponseEntity.ok(ApiResponse.success("OK", all));
+        }
         List<Map<String, Object>> filtered = all.stream()
                 .filter(row -> {
                     Object nameObj = row.get("buyerName");

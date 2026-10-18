@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import javax.sql.DataSource;
+import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.Date;
 import java.sql.PreparedStatement;
@@ -27,15 +28,31 @@ public class BuyerTransactionDaoImpl implements BuyerTransactionDao {
         this.dataSource = dataSource;
     }
 
+    private static final String SELECT_COLUMNS =
+            "BUYER_TRANSACTION_ID, CLIENT_ID, CLIENT_USERNAME, BUYER_ID, BUYER_NAME, TRANSACTION_DATE, CASH_PAID_AMT, DIS_AMT, PAYMENT_MODE ";
+
     private static final String INSERT_SQL =
             "INSERT INTO BLOOMBUDDY_BUYER_TRANSACTION (CLIENT_ID, CLIENT_USERNAME, BUYER_ID, BUYER_NAME, TRANSACTION_DATE, CASH_PAID_AMT, DIS_AMT, PAYMENT_MODE) "
                     + "VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
 
     private static final String SELECT_BY_BUYER_DATE_SQL =
-            "SELECT BUYER_TRANSACTION_ID, CLIENT_ID, CLIENT_USERNAME, BUYER_ID, BUYER_NAME, TRANSACTION_DATE, CASH_PAID_AMT, DIS_AMT, PAYMENT_MODE "
+            "SELECT " + SELECT_COLUMNS
                     + "FROM BLOOMBUDDY_BUYER_TRANSACTION "
                     + "WHERE CLIENT_ID = ? AND BUYER_ID = ? AND TRANSACTION_DATE BETWEEN ? AND ? "
                     + "ORDER BY TRANSACTION_DATE DESC, BUYER_TRANSACTION_ID DESC";
+
+    private static final String SELECT_BY_ID_SQL =
+            "SELECT " + SELECT_COLUMNS
+                    + "FROM BLOOMBUDDY_BUYER_TRANSACTION "
+                    + "WHERE CLIENT_ID = ? AND BUYER_TRANSACTION_ID = ?";
+
+    private static final String UPDATE_AMOUNTS_SQL =
+            "UPDATE BLOOMBUDDY_BUYER_TRANSACTION SET CASH_PAID_AMT = ?, DIS_AMT = ?, PAYMENT_MODE = ? "
+                    + "WHERE BUYER_TRANSACTION_ID = ? AND CLIENT_ID = ?";
+
+    private static final String DELETE_BY_ID_SQL =
+            "DELETE FROM BLOOMBUDDY_BUYER_TRANSACTION "
+                    + "WHERE BUYER_TRANSACTION_ID = ? AND CLIENT_ID = ?";
 
     @Override
     public BuyerTransaction insert(BuyerTransaction txn, Connection conn) {
@@ -84,6 +101,56 @@ public class BuyerTransactionDaoImpl implements BuyerTransactionDao {
         }
         logger.info("findByBuyerAndDateRange: count={}", result.size());
         return result;
+    }
+
+    @Override
+    public BuyerTransaction findById(Long clientId, Long buyerTransactionId, Connection conn) {
+        logger.info("findById: clientId={}, buyerTransactionId={}", clientId, buyerTransactionId);
+        try (PreparedStatement ps = conn.prepareStatement(SELECT_BY_ID_SQL)) {
+            ps.setLong(1, clientId);
+            ps.setLong(2, buyerTransactionId);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? mapRow(rs) : null;
+            }
+        } catch (SQLException e) {
+            logger.error("findById: SQL exception while fetching buyer transaction", e);
+            throw new RuntimeException("Failed to fetch buyer transaction", e);
+        }
+    }
+
+    @Override
+    public int updateAmounts(Long clientId, Long buyerTransactionId, BigDecimal cashPaidAmt,
+                             BigDecimal disAmt, String paymentMode, Connection conn) {
+        logger.info("updateAmounts: clientId={}, buyerTransactionId={}, cashPaidAmt={}, disAmt={}",
+                clientId, buyerTransactionId, cashPaidAmt, disAmt);
+        try (PreparedStatement ps = conn.prepareStatement(UPDATE_AMOUNTS_SQL)) {
+            ps.setBigDecimal(1, cashPaidAmt);
+            ps.setBigDecimal(2, disAmt);
+            ps.setString(3, paymentMode != null ? paymentMode : "C");
+            ps.setLong(4, buyerTransactionId);
+            ps.setLong(5, clientId);
+            int updated = ps.executeUpdate();
+            logger.info("updateAmounts: updated rows={}", updated);
+            return updated;
+        } catch (SQLException e) {
+            logger.error("updateAmounts: SQL exception while updating buyer transaction", e);
+            throw new RuntimeException("Failed to update buyer transaction", e);
+        }
+    }
+
+    @Override
+    public int deleteById(Long clientId, Long buyerTransactionId, Connection conn) {
+        logger.info("deleteById: clientId={}, buyerTransactionId={}", clientId, buyerTransactionId);
+        try (PreparedStatement ps = conn.prepareStatement(DELETE_BY_ID_SQL)) {
+            ps.setLong(1, buyerTransactionId);
+            ps.setLong(2, clientId);
+            int deleted = ps.executeUpdate();
+            logger.info("deleteById: deleted rows={}", deleted);
+            return deleted;
+        } catch (SQLException e) {
+            logger.error("deleteById: SQL exception while deleting buyer transaction", e);
+            throw new RuntimeException("Failed to delete buyer transaction", e);
+        }
     }
 
     private BuyerTransaction mapRow(ResultSet rs) throws SQLException {

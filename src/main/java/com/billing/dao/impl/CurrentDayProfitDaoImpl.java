@@ -2,6 +2,7 @@ package com.billing.dao.impl;
 
 import com.billing.dao.CurrentDayProfitDao;
 import com.billing.util.RoundOffUtil;
+import com.billing.util.SalesUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Repository;
@@ -30,7 +31,7 @@ public class CurrentDayProfitDaoImpl implements CurrentDayProfitDao {
     private static final String SELECT_TODAY_SALES_SQL =
             "SELECT FARMER_ID, FARMER_NAME, CUST_NAME, FLOWER_TYPE, TOTAL_WEIGHT, PERKG_RATE, PRICE " +
             "FROM BLOOMBUDDY_SALES " +
-            "WHERE CLIENT_ID = ? AND SALES_DATE = CURDATE()";
+            "WHERE CLIENT_ID = ? AND SALES_DATE = CURDATE()" + SalesUtil.FARMER_SIDE_FILTER;
 
     private static final String ORDER_BY_FARMER = " ORDER BY FARMER_NAME";
 

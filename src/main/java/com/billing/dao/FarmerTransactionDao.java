@@ -17,4 +17,11 @@ public interface FarmerTransactionDao {
     List<java.math.BigDecimal> findDebAmts(Long clientId, String farmerId, LocalDate transactionDate);
 
     java.math.BigDecimal findLatestCashPaid(Long clientId, String farmerId, LocalDate transactionDate);
+
+    FarmerTransaction findById(Long clientId, Long farmerTransactionId, Connection conn);
+
+    int updateAmounts(Long clientId, Long farmerTransactionId, java.math.BigDecimal excessDebitAmt,
+                      java.math.BigDecimal debAmt, String paymentMode, Connection conn);
+
+    int deleteById(Long clientId, Long farmerTransactionId, Connection conn);
 }

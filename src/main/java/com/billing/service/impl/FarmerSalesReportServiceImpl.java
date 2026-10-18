@@ -6,6 +6,7 @@ import com.billing.dao.FarmerTransactionDao;
 import com.billing.dao.SalesTotalSummaryDao;
 import com.billing.service.FarmerSalesReportService;
 import com.billing.util.RoundOffUtil;
+import com.billing.util.SalesUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -232,7 +233,7 @@ public class FarmerSalesReportServiceImpl implements FarmerSalesReportService {
     public List<Map<String, Object>> getTodayFarmerSales(Long clientId, String clientUsername) {
         logger.info("getTodayFarmerSales: clientId={}, clientUsername={}", clientId, clientUsername);
 
-        LocalDate today = LocalDate.now();
+        LocalDate today = SalesUtil.today();
         List<Map<String, Object>> summaryRows = salesTotalSummaryDao.findSummaryForDate(clientId, today);
         List<Map<String, Object>> rawRows = farmerSalesReportDao.findTodaySales(clientId, clientUsername);
 
@@ -282,7 +283,7 @@ public class FarmerSalesReportServiceImpl implements FarmerSalesReportService {
             farmerRow.put("finalTotal", RoundOffUtil.round((BigDecimal) farmerRow.get("finalTotal")));
             try {
                 String fid = (String) farmerRow.get("farmerId");
-                LocalDate todayDate = LocalDate.now();
+                LocalDate todayDate = SalesUtil.today();
                 List<BigDecimal> debAmtsToday = farmerTransactionDao.findByFarmerAndDateRange(clientId, fid, todayDate, todayDate).stream()
                         .map(txn -> RoundOffUtil.round(txn.getDebAmt()))
                         .filter(d -> d.compareTo(BigDecimal.ZERO) > 0)

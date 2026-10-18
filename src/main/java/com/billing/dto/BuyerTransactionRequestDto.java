@@ -2,11 +2,20 @@ package com.billing.dto;
 
 public class BuyerTransactionRequestDto {
 
+    private Long buyerTransactionId;
     private String buyerName;
     private String transactionDate;
     private String amountReceived;
     private String discountAmt;
     private String paymentMode;
+
+    public Long getBuyerTransactionId() {
+        return buyerTransactionId;
+    }
+
+    public void setBuyerTransactionId(Long buyerTransactionId) {
+        this.buyerTransactionId = buyerTransactionId;
+    }
 
     public String getBuyerName() {
         return buyerName;

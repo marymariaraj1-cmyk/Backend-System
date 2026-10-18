@@ -43,7 +43,8 @@ public class SecurityConfig {
                         "/api/farmer-transaction/**", "/api/buyer-transaction/**",
                         "/api/farmer-account-check/**",
                         "/api/flower-price-config/**", "/api/flower-price/**", "/api/poc/**",
-                        "/api/client-profile/**").hasRole("CLIENT")
+                        "/api/client-profile/**",
+                        "/api/cash-book-field-config/**", "/api/daily-cash-book/**").hasRole("CLIENT")
                 .anyRequest().permitAll())
             .exceptionHandling(ex -> ex
                 .authenticationEntryPoint(new JsonAuthenticationEntryPoint())

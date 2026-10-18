@@ -25,7 +25,20 @@ public class DailyCashBookDaoImpl implements DailyCashBookDao {
 
     private static final String BUYER_PURCHASE_TOTAL_SQL =
             "SELECT COALESCE(SUM(PRICE), 0) AS TOTAL FROM BLOOMBUDDY_SALES " +
-            "WHERE CLIENT_ID = ? AND SALES_DATE = ?";
+            "WHERE CLIENT_ID = ? AND SALES_DATE = ? " +
+            "AND BUYER_ID IS NOT NULL " +
+            "AND CUST_NAME IS NOT NULL " +
+            "AND LOWER(CUST_NAME) NOT LIKE '%cash%' " +
+            "AND LOWER(CUST_NAME) NOT LIKE '%upi%' " +
+            "AND LOWER(CUST_NAME) NOT LIKE '%gpay%' " +
+            "AND LOWER(CUST_NAME) NOT LIKE '%google pay%' " +
+            "AND LOWER(CUST_NAME) NOT LIKE '%phonepe%' " +
+            "AND LOWER(CUST_NAME) NOT LIKE '%paytm%' " +
+            "AND LOWER(CUST_NAME) NOT LIKE '%online%' " +
+            "AND LOWER(CUST_NAME) NOT LIKE '%card payment%' " +
+            "AND LOWER(CUST_NAME) NOT LIKE '%neft%' " +
+            "AND LOWER(CUST_NAME) NOT LIKE '%rtgs%' " +
+            "AND LOWER(CUST_NAME) NOT LIKE '%imps%'";
 
     private static final String FARMER_EXCESS_DEBIT_LIST_SQL =
             "SELECT FARMER_ID, FARMER_NAME, COALESCE(SUM(EXCESS_DEBIT_AMT), 0) AS AMOUNT " +
@@ -47,9 +60,8 @@ public class DailyCashBookDaoImpl implements DailyCashBookDao {
 
     private static final String FIND_HEADER_SQL =
             "SELECT DAILY_CASH_BOOK_ID, CLIENT_ID, CLIENT_USERNAME, BOOK_DATE, " +
-            "RENT_AMT, EXPENSE_AMT, CHIT_AMT, FINANCE_AMT, NOTE_AMT, SALARY_AMT, COIN_AMT, " +
+            "MANUAL_DEBIT_VALUES, MANUAL_CREDIT_VALUES, MANUAL_DEBIT_TOTAL, MANUAL_CREDIT_TOTAL, " +
             "BUYER_PURCHASE_TOTAL, FARMER_EXCESS_DEBIT_CASH, " +
-            "CASH_IN_HAND_AMT, OPENING_BALANCE, " +
             "BUYER_RECEIVED_TOTAL, COMMISSION_TOTAL, INSTALLMENT_TOTAL, " +
             "FARMER_EXCESS_DEBIT_NONCASH, TOTAL_DEBIT_SIDE, TOTAL_CREDIT_SIDE, CLOSING_BALANCE, REMARKS " +
             "FROM BLOOMBUDDY_DAILY_CASH_BOOK WHERE CLIENT_ID = ? AND BOOK_DATE = ?";
@@ -59,18 +71,16 @@ public class DailyCashBookDaoImpl implements DailyCashBookDao {
 
     private static final String UPSERT_HEADER_SQL =
             "INSERT INTO BLOOMBUDDY_DAILY_CASH_BOOK (CLIENT_ID, CLIENT_USERNAME, BOOK_DATE, " +
-            "RENT_AMT, EXPENSE_AMT, CHIT_AMT, FINANCE_AMT, NOTE_AMT, SALARY_AMT, COIN_AMT, " +
+            "MANUAL_DEBIT_VALUES, MANUAL_CREDIT_VALUES, MANUAL_DEBIT_TOTAL, MANUAL_CREDIT_TOTAL, " +
             "BUYER_PURCHASE_TOTAL, FARMER_EXCESS_DEBIT_CASH, " +
-            "CASH_IN_HAND_AMT, OPENING_BALANCE, " +
             "BUYER_RECEIVED_TOTAL, COMMISSION_TOTAL, INSTALLMENT_TOTAL, " +
             "FARMER_EXCESS_DEBIT_NONCASH, TOTAL_DEBIT_SIDE, TOTAL_CREDIT_SIDE, CLOSING_BALANCE, REMARKS) " +
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) " +
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) " +
             "ON DUPLICATE KEY UPDATE CLIENT_USERNAME = VALUES(CLIENT_USERNAME), " +
-            "RENT_AMT = VALUES(RENT_AMT), EXPENSE_AMT = VALUES(EXPENSE_AMT), CHIT_AMT = VALUES(CHIT_AMT), " +
-            "FINANCE_AMT = VALUES(FINANCE_AMT), NOTE_AMT = VALUES(NOTE_AMT), SALARY_AMT = VALUES(SALARY_AMT), " +
-            "COIN_AMT = VALUES(COIN_AMT), BUYER_PURCHASE_TOTAL = VALUES(BUYER_PURCHASE_TOTAL), " +
+            "MANUAL_DEBIT_VALUES = VALUES(MANUAL_DEBIT_VALUES), MANUAL_CREDIT_VALUES = VALUES(MANUAL_CREDIT_VALUES), " +
+            "MANUAL_DEBIT_TOTAL = VALUES(MANUAL_DEBIT_TOTAL), MANUAL_CREDIT_TOTAL = VALUES(MANUAL_CREDIT_TOTAL), " +
+            "BUYER_PURCHASE_TOTAL = VALUES(BUYER_PURCHASE_TOTAL), " +
             "FARMER_EXCESS_DEBIT_CASH = VALUES(FARMER_EXCESS_DEBIT_CASH), " +
-            "CASH_IN_HAND_AMT = VALUES(CASH_IN_HAND_AMT), OPENING_BALANCE = VALUES(OPENING_BALANCE), " +
             "BUYER_RECEIVED_TOTAL = VALUES(BUYER_RECEIVED_TOTAL), COMMISSION_TOTAL = VALUES(COMMISSION_TOTAL), " +
             "INSTALLMENT_TOTAL = VALUES(INSTALLMENT_TOTAL), " +
             "FARMER_EXCESS_DEBIT_NONCASH = VALUES(FARMER_EXCESS_DEBIT_NONCASH), " +
@@ -180,17 +190,12 @@ public class DailyCashBookDaoImpl implements DailyCashBookDao {
                     row.put("dailyCashBookId", rs.getLong("DAILY_CASH_BOOK_ID"));
                     row.put("clientId", rs.getLong("CLIENT_ID"));
                     row.put("bookDate", rs.getDate("BOOK_DATE").toLocalDate().toString());
-                    row.put("rentAmt", dec(rs, "RENT_AMT"));
-                    row.put("expenseAmt", dec(rs, "EXPENSE_AMT"));
-                    row.put("chitAmt", dec(rs, "CHIT_AMT"));
-                    row.put("financeAmt", dec(rs, "FINANCE_AMT"));
-                    row.put("noteAmt", dec(rs, "NOTE_AMT"));
-                    row.put("salaryAmt", dec(rs, "SALARY_AMT"));
-                    row.put("coinAmt", dec(rs, "COIN_AMT"));
+                    row.put("manualDebitValues", rs.getString("MANUAL_DEBIT_VALUES"));
+                    row.put("manualCreditValues", rs.getString("MANUAL_CREDIT_VALUES"));
+                    row.put("manualDebitTotal", dec(rs, "MANUAL_DEBIT_TOTAL"));
+                    row.put("manualCreditTotal", dec(rs, "MANUAL_CREDIT_TOTAL"));
                     row.put("buyerPurchaseTotal", dec(rs, "BUYER_PURCHASE_TOTAL"));
                     row.put("farmerExcessDebitCash", dec(rs, "FARMER_EXCESS_DEBIT_CASH"));
-                    row.put("cashInHandAmt", dec(rs, "CASH_IN_HAND_AMT"));
-                    row.put("openingBalance", dec(rs, "OPENING_BALANCE"));
                     row.put("buyerReceivedTotal", dec(rs, "BUYER_RECEIVED_TOTAL"));
                     row.put("commissionTotal", dec(rs, "COMMISSION_TOTAL"));
                     row.put("installmentTotal", dec(rs, "INSTALLMENT_TOTAL"));
@@ -240,17 +245,12 @@ public class DailyCashBookDaoImpl implements DailyCashBookDao {
             ps.setString(2, (String) header.get("clientUsername"));
             ps.setDate(3, java.sql.Date.valueOf((LocalDate) header.get("bookDate")));
             int i = 4;
-            ps.setBigDecimal(i++, (BigDecimal) header.get("rentAmt"));
-            ps.setBigDecimal(i++, (BigDecimal) header.get("expenseAmt"));
-            ps.setBigDecimal(i++, (BigDecimal) header.get("chitAmt"));
-            ps.setBigDecimal(i++, (BigDecimal) header.get("financeAmt"));
-            ps.setBigDecimal(i++, (BigDecimal) header.get("noteAmt"));
-            ps.setBigDecimal(i++, (BigDecimal) header.get("salaryAmt"));
-            ps.setBigDecimal(i++, (BigDecimal) header.get("coinAmt"));
+            ps.setString(i++, (String) header.get("manualDebitValues"));
+            ps.setString(i++, (String) header.get("manualCreditValues"));
+            ps.setBigDecimal(i++, (BigDecimal) header.get("manualDebitTotal"));
+            ps.setBigDecimal(i++, (BigDecimal) header.get("manualCreditTotal"));
             ps.setBigDecimal(i++, (BigDecimal) header.get("buyerPurchaseTotal"));
             ps.setBigDecimal(i++, (BigDecimal) header.get("farmerExcessDebitCash"));
-            ps.setBigDecimal(i++, (BigDecimal) header.get("cashInHandAmt"));
-            ps.setBigDecimal(i++, (BigDecimal) header.get("openingBalance"));
             ps.setBigDecimal(i++, (BigDecimal) header.get("buyerReceivedTotal"));
             ps.setBigDecimal(i++, (BigDecimal) header.get("commissionTotal"));
             ps.setBigDecimal(i++, (BigDecimal) header.get("installmentTotal"));

@@ -105,7 +105,7 @@ public class MultiSalesEntryServiceImpl implements MultiSalesEntryService {
         Set<String> flowerSet = validFlowers.stream()
                 .map(String::trim).map(s -> s.toLowerCase(Locale.ROOT)).collect(Collectors.toSet());
 
-        LocalDate date = LocalDate.now();
+        LocalDate date = SalesUtil.today();
         List<Sales> entities = new ArrayList<>();
 
         for (MultiSalesLine line : lines) {
@@ -347,7 +347,7 @@ public class MultiSalesEntryServiceImpl implements MultiSalesEntryService {
 
     @Override
     public List<Map<String, Object>> getTodayEntries(Long clientId) {
-        LocalDate today = LocalDate.now();
+        LocalDate today = SalesUtil.today();
         List<Sales> rows = multiSalesEntryDao.findByClientIdAndDate(clientId, today);
 
         List<Map<String, Object>> result = new ArrayList<>();

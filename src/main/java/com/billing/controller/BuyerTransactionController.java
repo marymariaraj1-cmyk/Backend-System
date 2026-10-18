@@ -67,4 +67,23 @@ public class BuyerTransactionController {
         List<BuyerTransaction> history = buyerTransactionService.getTransactionHistory(buyerName, fromDate, toDate, clientId);
         return ResponseEntity.ok(ApiResponse.success("OK", history));
     }
+
+    @PutMapping("/update")
+    public ResponseEntity<ApiResponse<BuyerTransaction>> update(@RequestBody BuyerTransactionRequestDto request) {
+        Long clientId = SessionConfig.getCurrentClientId();
+        logger.info("update: received buyer transaction id={}, clientId={}",
+                request.getBuyerTransactionId(), clientId);
+        BuyerTransaction updated = buyerTransactionService.updateTransaction(
+                request.getBuyerTransactionId(), request.getAmountReceived(), request.getDiscountAmt(),
+                request.getPaymentMode(), clientId);
+        return ResponseEntity.ok(ApiResponse.success("Buyer transaction updated successfully", updated));
+    }
+
+    @DeleteMapping("/delete")
+    public ResponseEntity<ApiResponse<Void>> delete(@RequestParam Long buyerTransactionId) {
+        Long clientId = SessionConfig.getCurrentClientId();
+        logger.info("delete: buyerTransactionId={}, clientId={}", buyerTransactionId, clientId);
+        buyerTransactionService.deleteTransaction(buyerTransactionId, clientId);
+        return ResponseEntity.ok(ApiResponse.success("Buyer transaction deleted successfully", null));
+    }
 }

@@ -249,6 +249,202 @@ public class BuyerTransactionServiceImpl implements BuyerTransactionService {
         return balance;
     }
 
+    private BigDecimal parsePositiveAmount(String value, String label) {
+        if (value == null || value.trim().isEmpty()) {
+            return null;
+        }
+        String trimmed = value.trim();
+        if (!isValidAmount(trimmed)) {
+            throw new IllegalArgumentException(label + " must be a valid amount (digits, up to 2 decimal places, no negative values)");
+        }
+        BigDecimal amount = RoundOffUtil.round(new BigDecimal(trimmed));
+        if (amount.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalArgumentException(label + " must be greater than zero");
+        }
+        return amount;
+    }
+
+    private String normalizeMode(String paymentMode) {
+        String normalizedMode = paymentMode != null ? paymentMode.trim().toUpperCase() : "C";
+        if (!"C".equals(normalizedMode) && !"U".equals(normalizedMode)) {
+            normalizedMode = "C";
+        }
+        return normalizedMode;
+    }
+
+    private BigDecimal zeroIfNull(BigDecimal value) {
+        return value != null ? value : BigDecimal.ZERO;
+    }
+
+    /**
+     * Blocks mutation of a transaction whose ledger state has been settled away,
+     * making the reversal unsafe.
+     */
+    private void assertMutable(BuyerTransaction txn, Connection conn) {
+        LocalDate date = txn.getTransactionDate();
+        BuyerLedger ledger = buyerLedgerDao.findRow(txn.getClientId(), txn.getBuyerId(), date, conn);
+
+        if (ledger == null) {
+            throw new IllegalArgumentException(
+                    "No buyer ledger entry exists for this date. The record cannot be edited or deleted.");
+        }
+
+        String active = ledger.getLedgerActive();
+        if (active == null || !"Y".equalsIgnoreCase(active.trim())) {
+            throw new IllegalArgumentException(
+                    "This transaction belongs to an inactive (settled) buyer ledger period and cannot be edited or deleted.");
+        }
+    }
+
+    /**
+     * Moves the buyer ledger from the transaction's stored amounts to the supplied targets.
+     * Deletion passes both targets as {@code BigDecimal.ZERO}, which fully reverses both effects.
+     */
+    private void applyDelta(BuyerTransaction txn, BigDecimal newCash, BigDecimal newDiscount, Connection conn) {
+        Long clientId = txn.getClientId();
+        String buyerId = txn.getBuyerId();
+        LocalDate date = txn.getTransactionDate();
+
+        BigDecimal deltaCash = zeroIfNull(newCash).subtract(zeroIfNull(txn.getCashPaidAmt()));
+        if (deltaCash.compareTo(BigDecimal.ZERO) != 0) {
+            buyerLedgerDao.decreaseCreditAmt(clientId, buyerId, date, deltaCash.negate(), conn);
+        }
+
+        BigDecimal deltaDiscount = zeroIfNull(newDiscount).subtract(zeroIfNull(txn.getDisAmt()));
+        if (deltaDiscount.compareTo(BigDecimal.ZERO) != 0) {
+            buyerLedgerDao.adjustDebitAmt(clientId, buyerId, date, deltaDiscount.negate(), conn);
+            buyerLedgerDao.addDiscountAmt(clientId, buyerId, date, deltaDiscount, conn);
+        }
+    }
+
+    @Override
+    public BuyerTransaction updateTransaction(Long buyerTransactionId, String amountReceived, String discountAmt,
+                                              String paymentMode, Long clientId) {
+        logger.info("updateTransaction: buyerTransactionId={}, clientId={}, amountReceived={}, discountAmt={}",
+                buyerTransactionId, clientId, amountReceived, discountAmt);
+
+        if (buyerTransactionId == null) {
+            throw new IllegalArgumentException("Transaction id is required");
+        }
+
+        BigDecimal newCash = parsePositiveAmount(amountReceived, "Amount Received");
+        BigDecimal newDiscount = parsePositiveAmount(discountAmt, "Discount Amount");
+        if (newCash == null && newDiscount == null) {
+            throw new IllegalArgumentException("Please enter either Amount Received or Discount Amount to proceed.");
+        }
+        String normalizedMode = normalizeMode(paymentMode);
+
+        Connection conn = null;
+        try {
+            conn = dataSource.getConnection();
+            conn.setAutoCommit(false);
+
+            BuyerTransaction txn = buyerTransactionDao.findById(clientId, buyerTransactionId, conn);
+            if (txn == null) {
+                throw new IllegalArgumentException("Transaction not found");
+            }
+
+            assertMutable(txn, conn);
+            applyDelta(txn, newCash, newDiscount, conn);
+
+            int updated = buyerTransactionDao.updateAmounts(clientId, buyerTransactionId,
+                    zeroIfNull(newCash), zeroIfNull(newDiscount), normalizedMode, conn);
+            if (updated == 0) {
+                throw new IllegalArgumentException("Transaction not found");
+            }
+
+            ledgerSettlementService.settleBuyerIfClosed(clientId, txn.getBuyerId(), txn.getTransactionDate(), conn);
+
+            conn.commit();
+            logger.info("updateTransaction: committed, buyerTransactionId={}", buyerTransactionId);
+
+            txn.setCashPaidAmt(zeroIfNull(newCash));
+            txn.setDisAmt(zeroIfNull(newDiscount));
+            txn.setPaymentMode(normalizedMode);
+            return txn;
+
+        } catch (Exception e) {
+            logger.error("updateTransaction: failed, rolling back", e);
+            rollbackQuietly(conn);
+            if (e instanceof IllegalArgumentException) {
+                throw (IllegalArgumentException) e;
+            }
+            if (e instanceof RuntimeException) {
+                throw (RuntimeException) e;
+            }
+            throw new RuntimeException("Failed to update buyer transaction", e);
+        } finally {
+            closeQuietly(conn);
+        }
+    }
+
+    @Override
+    public void deleteTransaction(Long buyerTransactionId, Long clientId) {
+        logger.info("deleteTransaction: buyerTransactionId={}, clientId={}", buyerTransactionId, clientId);
+
+        if (buyerTransactionId == null) {
+            throw new IllegalArgumentException("Transaction id is required");
+        }
+
+        Connection conn = null;
+        try {
+            conn = dataSource.getConnection();
+            conn.setAutoCommit(false);
+
+            BuyerTransaction txn = buyerTransactionDao.findById(clientId, buyerTransactionId, conn);
+            if (txn == null) {
+                throw new IllegalArgumentException("Transaction not found");
+            }
+
+            assertMutable(txn, conn);
+            applyDelta(txn, BigDecimal.ZERO, BigDecimal.ZERO, conn);
+
+            int deleted = buyerTransactionDao.deleteById(clientId, buyerTransactionId, conn);
+            if (deleted == 0) {
+                throw new IllegalArgumentException("Transaction not found");
+            }
+
+            buyerLedgerDao.deleteRowIfZero(clientId, txn.getBuyerId(), txn.getTransactionDate(), conn);
+            ledgerSettlementService.settleBuyerIfClosed(clientId, txn.getBuyerId(), txn.getTransactionDate(), conn);
+
+            conn.commit();
+            logger.info("deleteTransaction: committed, buyerTransactionId={}", buyerTransactionId);
+
+        } catch (Exception e) {
+            logger.error("deleteTransaction: failed, rolling back", e);
+            rollbackQuietly(conn);
+            if (e instanceof IllegalArgumentException) {
+                throw (IllegalArgumentException) e;
+            }
+            if (e instanceof RuntimeException) {
+                throw (RuntimeException) e;
+            }
+            throw new RuntimeException("Failed to delete buyer transaction", e);
+        } finally {
+            closeQuietly(conn);
+        }
+    }
+
+    private void rollbackQuietly(Connection conn) {
+        if (conn != null) {
+            try {
+                conn.rollback();
+            } catch (Exception rollbackEx) {
+                logger.error("rollback failed", rollbackEx);
+            }
+        }
+    }
+
+    private void closeQuietly(Connection conn) {
+        if (conn != null) {
+            try {
+                conn.close();
+            } catch (Exception closeEx) {
+                logger.error("close failed", closeEx);
+            }
+        }
+    }
+
     private boolean isValidAmount(String value) {
         return value != null && value.matches("^\\d+(\\.\\d{1,2})?$");
     }

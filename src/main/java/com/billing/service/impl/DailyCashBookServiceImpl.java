@@ -2,8 +2,11 @@ package com.billing.service.impl;
 
 import com.billing.dao.DailyCashBookDao;
 import com.billing.dto.DailyCashBookSaveRequest;
+import com.billing.dto.ManualAmountEntry;
 import com.billing.service.DailyCashBookService;
+import com.billing.util.ManualValuesUtil;
 import com.billing.util.RoundOffUtil;
+import com.billing.util.SalesUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -85,6 +88,8 @@ public class DailyCashBookServiceImpl implements DailyCashBookService {
         }
         header.put("farmerExcessDebitCashList", cashList);
         header.put("farmerExcessDebitNonCashList", nonCashList);
+        header.put("manualDebitEntries", ManualValuesUtil.parse((String) header.get("manualDebitValues")));
+        header.put("manualCreditEntries", ManualValuesUtil.parse((String) header.get("manualCreditValues")));
         return header;
     }
 
@@ -99,7 +104,7 @@ public class DailyCashBookServiceImpl implements DailyCashBookService {
         } catch (Exception e) {
             throw new IllegalArgumentException("Book date must be yyyy-MM-dd");
         }
-        if (!bookDate.equals(LocalDate.now())) {
+        if (!bookDate.equals(SalesUtil.today())) {
             throw new IllegalArgumentException("Only today's cash book can be saved");
         }
         logger.info("saveBook: clientId={}, bookDate={}", clientId, bookDate);
@@ -119,37 +124,33 @@ public class DailyCashBookServiceImpl implements DailyCashBookService {
         List<Map<String, Object>> nonCashList =
                 (List<Map<String, Object>>) blocks.get("farmerExcessDebitNonCashList");
 
-        BigDecimal rent = nz(request.getRentAmt());
-        BigDecimal expense = nz(request.getExpenseAmt());
-        BigDecimal chit = nz(request.getChitAmt());
-        BigDecimal finance = nz(request.getFinanceAmt());
-        BigDecimal note = nz(request.getNoteAmt());
-        BigDecimal salary = nz(request.getSalaryAmt());
-        BigDecimal coin = nz(request.getCoinAmt());
-        BigDecimal cashInHand = nz(request.getCashInHandAmt());
-        BigDecimal openingBalance = nz(request.getOpeningBalance());
+        List<ManualAmountEntry> manualDebitEntries =
+                request.getManualDebitEntries() != null ? request.getManualDebitEntries() : List.of();
+        List<ManualAmountEntry> manualCreditEntries =
+                request.getManualCreditEntries() != null ? request.getManualCreditEntries() : List.of();
+        checkDuplicateLabels(manualDebitEntries, "Debit");
+        checkDuplicateLabels(manualCreditEntries, "Credit");
 
-        BigDecimal totalDebit = RoundOffUtil.round(rent.add(expense).add(chit).add(finance)
-                .add(note).add(salary).add(coin).add(buyerPurchaseTotal).add(farmerExcessDebitCash));
-        BigDecimal totalCredit = RoundOffUtil.round(cashInHand.add(openingBalance)
-                .add(buyerReceivedTotal).add(commissionTotal).add(installmentTotal));
+        String manualDebitValues = ManualValuesUtil.build(manualDebitEntries);
+        String manualCreditValues = ManualValuesUtil.build(manualCreditEntries);
+        BigDecimal manualDebitTotal = sumManualEntries(ManualValuesUtil.parse(manualDebitValues));
+        BigDecimal manualCreditTotal = sumManualEntries(ManualValuesUtil.parse(manualCreditValues));
+
+        BigDecimal totalDebit = RoundOffUtil.round(buyerPurchaseTotal.add(farmerExcessDebitCash).add(manualDebitTotal));
+        BigDecimal totalCredit = RoundOffUtil.round(
+                buyerReceivedTotal.add(commissionTotal).add(installmentTotal).add(manualCreditTotal));
         BigDecimal closing = RoundOffUtil.round(totalDebit.subtract(totalCredit));
 
         Map<String, Object> header = new LinkedHashMap<>();
         header.put("clientId", clientId);
         header.put("clientUsername", clientUsername);
         header.put("bookDate", bookDate);
-        header.put("rentAmt", rent);
-        header.put("expenseAmt", expense);
-        header.put("chitAmt", chit);
-        header.put("financeAmt", finance);
-        header.put("noteAmt", note);
-        header.put("salaryAmt", salary);
-        header.put("coinAmt", coin);
+        header.put("manualDebitValues", manualDebitValues);
+        header.put("manualCreditValues", manualCreditValues);
+        header.put("manualDebitTotal", manualDebitTotal);
+        header.put("manualCreditTotal", manualCreditTotal);
         header.put("buyerPurchaseTotal", buyerPurchaseTotal);
         header.put("farmerExcessDebitCash", farmerExcessDebitCash);
-        header.put("cashInHandAmt", cashInHand);
-        header.put("openingBalance", openingBalance);
         header.put("buyerReceivedTotal", buyerReceivedTotal);
         header.put("commissionTotal", commissionTotal);
         header.put("installmentTotal", installmentTotal);
@@ -216,13 +217,26 @@ public class DailyCashBookServiceImpl implements DailyCashBookService {
         return RoundOffUtil.round(sum);
     }
 
-    private BigDecimal nz(BigDecimal value) {
-        if (value == null) {
-            return BigDecimal.ZERO;
+    private BigDecimal sumManualEntries(List<ManualAmountEntry> entries) {
+        BigDecimal sum = BigDecimal.ZERO;
+        for (ManualAmountEntry entry : entries) {
+            if (entry.getAmount() != null) {
+                sum = sum.add(entry.getAmount());
+            }
         }
-        if (value.compareTo(BigDecimal.ZERO) < 0) {
-            throw new IllegalArgumentException("Amounts must not be negative");
+        return sum.setScale(2);
+    }
+
+    private void checkDuplicateLabels(List<ManualAmountEntry> entries, String side) {
+        java.util.Set<String> seen = new java.util.HashSet<>();
+        for (ManualAmountEntry entry : entries) {
+            if (entry.getLabel() == null) {
+                continue;
+            }
+            String key = entry.getLabel().trim().toLowerCase();
+            if (!key.isEmpty() && !seen.add(key)) {
+                throw new IllegalArgumentException("Duplicate " + side + " label: " + entry.getLabel().trim());
+            }
         }
-        return RoundOffUtil.round(value);
     }
 }

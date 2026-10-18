@@ -52,6 +52,21 @@ public class FarmerTransactionDaoImpl implements FarmerTransactionDao {
                     + "WHERE CLIENT_ID = ? AND FARMER_ID = ? AND TRANSACTION_DATE = ? AND CASH_PAID_AMT > 0 "
                     + "ORDER BY FARMER_TRANSACTION_ID DESC LIMIT 1";
 
+    private static final String SELECT_COLUMNS =
+            "FARMER_TRANSACTION_ID, CLIENT_ID, CLIENT_USERNAME, FARMER_ID, FARMER_NAME, TRANSACTION_DATE, CASH_PAID_AMT, EXCESS_DEBIT_AMT, DEB_AMT, PAYMENT_MODE";
+
+    private static final String SELECT_BY_ID_SQL =
+            "SELECT " + SELECT_COLUMNS + " FROM BLOOMBUDDY_FARMER_TRANSACTION "
+                    + "WHERE CLIENT_ID = ? AND FARMER_TRANSACTION_ID = ?";
+
+    private static final String UPDATE_AMOUNTS_SQL =
+            "UPDATE BLOOMBUDDY_FARMER_TRANSACTION SET EXCESS_DEBIT_AMT = ?, DEB_AMT = ?, PAYMENT_MODE = ? "
+                    + "WHERE CLIENT_ID = ? AND FARMER_TRANSACTION_ID = ?";
+
+    private static final String DELETE_BY_ID_SQL =
+            "DELETE FROM BLOOMBUDDY_FARMER_TRANSACTION "
+                    + "WHERE CLIENT_ID = ? AND FARMER_TRANSACTION_ID = ?";
+
     @Override
     public FarmerTransaction insert(FarmerTransaction txn, Connection conn) {
         logger.info("insert: farmerId={}, clientId={}, excessDebitAmt={}", txn.getFarmerId(), txn.getClientId(), txn.getExcessDebitAmt());
@@ -165,6 +180,59 @@ public class FarmerTransactionDaoImpl implements FarmerTransactionDao {
             throw new RuntimeException("Failed to fetch latest farmer cash paid amount", e);
         }
         return null;
+    }
+
+    @Override
+    public FarmerTransaction findById(Long clientId, Long farmerTransactionId, Connection conn) {
+        logger.info("findById: clientId={}, farmerTransactionId={}", clientId, farmerTransactionId);
+        try (PreparedStatement ps = conn.prepareStatement(SELECT_BY_ID_SQL)) {
+            ps.setLong(1, clientId);
+            ps.setLong(2, farmerTransactionId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return mapRow(rs);
+                }
+            }
+        } catch (SQLException e) {
+            logger.error("findById: SQL exception", e);
+            throw new RuntimeException("Failed to fetch farmer transaction", e);
+        }
+        return null;
+    }
+
+    @Override
+    public int updateAmounts(Long clientId, Long farmerTransactionId, java.math.BigDecimal excessDebitAmt,
+                             java.math.BigDecimal debAmt, String paymentMode, Connection conn) {
+        logger.info("updateAmounts: clientId={}, farmerTransactionId={}, excessDebitAmt={}, debAmt={}, paymentMode={}",
+                clientId, farmerTransactionId, excessDebitAmt, debAmt, paymentMode);
+        try (PreparedStatement ps = conn.prepareStatement(UPDATE_AMOUNTS_SQL)) {
+            ps.setBigDecimal(1, excessDebitAmt);
+            ps.setBigDecimal(2, debAmt);
+            ps.setString(3, paymentMode != null ? paymentMode : "C");
+            ps.setLong(4, clientId);
+            ps.setLong(5, farmerTransactionId);
+            int updated = ps.executeUpdate();
+            logger.info("updateAmounts: updated rows={}", updated);
+            return updated;
+        } catch (SQLException e) {
+            logger.error("updateAmounts: SQL exception", e);
+            throw new RuntimeException("Failed to update farmer transaction", e);
+        }
+    }
+
+    @Override
+    public int deleteById(Long clientId, Long farmerTransactionId, Connection conn) {
+        logger.info("deleteById: clientId={}, farmerTransactionId={}", clientId, farmerTransactionId);
+        try (PreparedStatement ps = conn.prepareStatement(DELETE_BY_ID_SQL)) {
+            ps.setLong(1, clientId);
+            ps.setLong(2, farmerTransactionId);
+            int deleted = ps.executeUpdate();
+            logger.info("deleteById: deleted rows={}", deleted);
+            return deleted;
+        } catch (SQLException e) {
+            logger.error("deleteById: SQL exception", e);
+            throw new RuntimeException("Failed to delete farmer transaction", e);
+        }
     }
 
     private FarmerTransaction mapRow(ResultSet rs) throws SQLException {

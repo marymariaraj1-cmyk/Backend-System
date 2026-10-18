@@ -13,4 +13,9 @@ public interface FarmerTransactionService {
                                       Long clientId, String clientUsername);
 
     List<FarmerTransaction> getTransactionHistory(String farmerName, String fromDate, String toDate, Long clientId);
+
+    FarmerTransaction updateTransaction(Long farmerTransactionId, String excessDebitAmt,
+                                        String debitAmt, String paymentMode, Long clientId);
+
+    void deleteTransaction(Long farmerTransactionId, Long clientId);
 }

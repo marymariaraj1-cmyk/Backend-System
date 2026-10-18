@@ -33,6 +33,8 @@ public interface BuyerLedgerDao {
 
     void decreaseCreditAmt(Long clientId, String buyerId, LocalDate date, BigDecimal amount, Connection conn);
 
+    void adjustDebitAmt(Long clientId, String buyerId, LocalDate date, BigDecimal amount, Connection conn);
+
     void updateSalesIds(Long clientId, String buyerId, LocalDate date, String salesIds, Connection conn);
 
     void deleteRowIfZero(Long clientId, String buyerId, LocalDate date, Connection conn);

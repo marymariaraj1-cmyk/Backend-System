@@ -3,6 +3,7 @@ package com.billing.service.impl;
 import com.billing.dao.DashboardDao;
 import com.billing.dto.DashboardData;
 import com.billing.service.DashboardService;
+import com.billing.util.SalesUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -37,7 +38,7 @@ public class DashboardServiceImpl implements DashboardService {
             return emptyDashboard();
         }
 
-        LocalDate today = LocalDate.now();
+        LocalDate today = SalesUtil.today();
         LocalDate from = today.minusDays(TREND_DAYS - 1);
         LocalDate monthStart = today.withDayOfMonth(1);
 

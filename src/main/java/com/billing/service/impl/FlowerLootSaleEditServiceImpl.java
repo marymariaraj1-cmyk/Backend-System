@@ -32,6 +32,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -228,7 +229,11 @@ public class FlowerLootSaleEditServiceImpl implements FlowerLootSaleEditService 
                 String newCustomer = row.getName().trim();
                 boolean customerChanged = !newCustomer.equalsIgnoreCase(oldCustomerName);
 
-                if (delta.compareTo(BigDecimal.ZERO) == 0 && !customerChanged) {
+                Integer existingBagCount = existing.get("bagCount") != null ? (Integer) existing.get("bagCount") : null;
+                Integer newBagCount = parseBagCount(row.getBag());
+                boolean bagChanged = !Objects.equals(existingBagCount, newBagCount);
+
+                if (delta.compareTo(BigDecimal.ZERO) == 0 && !customerChanged && !bagChanged) {
                     logger.info("saveEdits: no change for buyer salesId={}, skipping", salesId);
                     continue;
                 }
@@ -238,7 +243,7 @@ public class FlowerLootSaleEditServiceImpl implements FlowerLootSaleEditService 
                 salesEditDao.updateSalesRow(salesId, clientId, flowerType,
                         weight, rate, newAmount,
                         existing.get("flowerId") != null ? String.valueOf(existing.get("flowerId")) : null,
-                        existing.get("bagCount") != null ? (Integer) existing.get("bagCount") : null,
+                        newBagCount,
                         conn);
 
                 if (customerChanged) {
@@ -262,15 +267,19 @@ public class FlowerLootSaleEditServiceImpl implements FlowerLootSaleEditService 
                             date, newAmount, salesId, conn);
                     ledgerSettlementService.settleBuyerIfClosed(clientId, newBuyerId, date, conn);
                 } else {
-                    boolean isDirect = isDirectPayment(oldCustomerName);
-                    BuyerDelta bd = buyerDeltas.computeIfAbsent(buyerId, k -> new BuyerDelta(oldCustomerName));
-                    if (isDirect) {
-                        bd.creditDelta = bd.creditDelta.add(delta);
+                    if (delta.compareTo(BigDecimal.ZERO) != 0) {
+                        boolean isDirect = isDirectPayment(oldCustomerName);
+                        BuyerDelta bd = buyerDeltas.computeIfAbsent(buyerId, k -> new BuyerDelta(oldCustomerName));
+                        if (isDirect) {
+                            bd.creditDelta = bd.creditDelta.add(delta);
+                        } else {
+                            bd.debitDelta = bd.debitDelta.add(delta);
+                        }
+                        logger.info("saveEdits: buyer ledger delta for buyerId={}, debitDelta={}, creditDelta={}",
+                                buyerId, bd.debitDelta, bd.creditDelta);
                     } else {
-                        bd.debitDelta = bd.debitDelta.add(delta);
+                        logger.info("saveEdits: no ledger delta for buyer salesId={} (non-financial change only)", salesId);
                     }
-                    logger.info("saveEdits: buyer ledger delta for buyerId={}, debitDelta={}, creditDelta={}",
-                            buyerId, bd.debitDelta, bd.creditDelta);
                 }
 
                 buyerChanges++;
@@ -336,7 +345,11 @@ public class FlowerLootSaleEditServiceImpl implements FlowerLootSaleEditService 
                     }
                 }
 
-                if (delta.compareTo(BigDecimal.ZERO) == 0 && !farmerChanged) {
+                Integer existingBagCount = existing.get("bagCount") != null ? (Integer) existing.get("bagCount") : null;
+                Integer newBagCount = parseBagCount(row.getBag());
+                boolean bagChanged = !Objects.equals(existingBagCount, newBagCount);
+
+                if (delta.compareTo(BigDecimal.ZERO) == 0 && !farmerChanged && !bagChanged) {
                     logger.info("saveEdits: no change for farmer salesId={}, skipping", salesId);
                     continue;
                 }
@@ -346,7 +359,7 @@ public class FlowerLootSaleEditServiceImpl implements FlowerLootSaleEditService 
                 salesEditDao.updateSalesRow(salesId, clientId, flowerType,
                         weight, rate, newAmount,
                         existing.get("flowerId") != null ? String.valueOf(existing.get("flowerId")) : null,
-                        existing.get("bagCount") != null ? (Integer) existing.get("bagCount") : null,
+                        newBagCount,
                         conn);
 
                 if (farmerChanged) {
@@ -612,6 +625,12 @@ public class FlowerLootSaleEditServiceImpl implements FlowerLootSaleEditService 
         if (isBlank(row.getAmount()) || !SalesUtil.isDecimal(row.getAmount().trim())) {
             throw new IllegalArgumentException("Amount must be a valid decimal number in each " + lower + " row");
         }
+        if (isBlank(row.getBag()) || !row.getBag().trim().matches("\\d+")) {
+            throw new IllegalArgumentException("Bag must be a valid whole number in each " + lower + " row");
+        }
+        if (Integer.parseInt(row.getBag().trim()) <= 0) {
+            throw new IllegalArgumentException("Bag must be greater than zero in each " + lower + " row");
+        }
         if (new BigDecimal(row.getAmount().trim()).compareTo(BigDecimal.ZERO) <= 0) {
             throw new IllegalArgumentException("Amount must be greater than zero in each " + lower + " row");
         }
@@ -660,6 +679,13 @@ public class FlowerLootSaleEditServiceImpl implements FlowerLootSaleEditService 
 
     private BigDecimal parseAmount(String value) {
         return RoundOffUtil.round(new BigDecimal(value.trim()));
+    }
+
+    private Integer parseBagCount(String value) {
+        if (isBlank(value)) {
+            return null;
+        }
+        return Integer.valueOf(value.trim());
     }
 
     private BigDecimal parseDecimal(String value) {

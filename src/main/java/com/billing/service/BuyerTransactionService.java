@@ -15,5 +15,10 @@ public interface BuyerTransactionService {
 
     List<BuyerTransaction> getTransactionHistory(String buyerName, String fromDate, String toDate, Long clientId);
 
+    BuyerTransaction updateTransaction(Long buyerTransactionId, String amountReceived, String discountAmt,
+                                       String paymentMode, Long clientId);
+
+    void deleteTransaction(Long buyerTransactionId, Long clientId);
+
     BigDecimal getOpeningBalance(String buyerName, Long clientId);
 }

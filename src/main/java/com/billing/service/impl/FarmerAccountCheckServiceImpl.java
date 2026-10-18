@@ -9,6 +9,7 @@ import com.billing.entity.FarmerTransaction;
 import com.billing.service.FarmerAccountCheckService;
 import com.billing.service.LedgerSettlementService;
 import com.billing.util.RoundOffUtil;
+import com.billing.util.SalesUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -70,7 +71,7 @@ public class FarmerAccountCheckServiceImpl implements FarmerAccountCheckService 
     @Override
     public BigDecimal getLastActiveClosingBalance(Long clientId, String farmerId) {
         logger.info("getLastActiveClosingBalance: clientId={}, farmerId={}", clientId, farmerId);
-        LocalDate currentMonthStart = LocalDate.now().withDayOfMonth(1);
+        LocalDate currentMonthStart = SalesUtil.today().withDayOfMonth(1);
         Connection conn = null;
         try {
             conn = dataSource.getConnection();
@@ -116,7 +117,7 @@ public class FarmerAccountCheckServiceImpl implements FarmerAccountCheckService 
     public boolean previewWillCauseZeroClose(Long clientId, String clientUsername, String farmerId,
                                                String farmerName, BigDecimal finalAmount) {
         logger.info("previewWillCauseZeroClose: clientId={}, farmerId={}, finalAmount={}", clientId, farmerId, finalAmount);
-        LocalDate today = LocalDate.now();
+        LocalDate today = SalesUtil.today();
 
         Connection conn = null;
         try {
@@ -187,7 +188,7 @@ public class FarmerAccountCheckServiceImpl implements FarmerAccountCheckService 
             logger.warn("commitDebitWrite: final amount is zero or empty, skipping ledger update");
             return;
         }
-        LocalDate today = LocalDate.now();
+        LocalDate today = SalesUtil.today();
         Connection conn = null;
         try {
             conn = dataSource.getConnection();

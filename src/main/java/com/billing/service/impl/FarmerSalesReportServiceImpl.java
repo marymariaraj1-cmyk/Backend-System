@@ -4,6 +4,7 @@ import com.billing.dao.FarmerLedgerDao;
 import com.billing.dao.FarmerSalesReportDao;
 import com.billing.dao.FarmerTransactionDao;
 import com.billing.dao.SalesTotalSummaryDao;
+import com.billing.service.FarmerCommissionConfigService;
 import com.billing.service.FarmerSalesReportService;
 import com.billing.util.RoundOffUtil;
 import com.billing.util.SalesUtil;
@@ -28,15 +29,18 @@ public class FarmerSalesReportServiceImpl implements FarmerSalesReportService {
     private final FarmerLedgerDao farmerLedgerDao;
     private final SalesTotalSummaryDao salesTotalSummaryDao;
     private final FarmerTransactionDao farmerTransactionDao;
+    private final FarmerCommissionConfigService commissionConfigService;
 
     public FarmerSalesReportServiceImpl(FarmerSalesReportDao farmerSalesReportDao,
                                         FarmerLedgerDao farmerLedgerDao,
                                         SalesTotalSummaryDao salesTotalSummaryDao,
-                                        FarmerTransactionDao farmerTransactionDao) {
+                                        FarmerTransactionDao farmerTransactionDao,
+                                        FarmerCommissionConfigService commissionConfigService) {
         this.farmerSalesReportDao = farmerSalesReportDao;
         this.farmerLedgerDao = farmerLedgerDao;
         this.salesTotalSummaryDao = salesTotalSummaryDao;
         this.farmerTransactionDao = farmerTransactionDao;
+        this.commissionConfigService = commissionConfigService;
     }
 
     @Override
@@ -52,17 +56,43 @@ public class FarmerSalesReportServiceImpl implements FarmerSalesReportService {
             rows = ids.isEmpty() ? Collections.emptyList() : farmerSalesReportDao.findSalesByIds(clientId, ids);
         }
 
-        BigDecimal total = BigDecimal.ZERO;
-        for (Map<String, Object> row : rows) {
-            Object priceObj = row.get("price");
-            if (priceObj instanceof BigDecimal) {
-                total = total.add((BigDecimal) priceObj);
-            }
-        }
-        total = RoundOffUtil.round(total);
+        // Aggregated figures are stored in BLOOMBUDDY_SALES_TOTALSUMMARY (written at save time and
+        // maintained by FarmerTransactionServiceImpl via adjustDebit). Prefer the stored row so this
+        // popup agrees with the ledger and the farmer sales report; recomputing here from the raw
+        // rows drifted by a rounding rupee and produced a phantom debit.
+        Map<String, Object> stored = salesTotalSummaryDao.findRow(clientId, farmerId, date);
 
-        BigDecimal commission = RoundOffUtil.round(total.multiply(new BigDecimal("0.10")));
-        BigDecimal netAmount = RoundOffUtil.round(total.subtract(commission));
+        BigDecimal total;
+        BigDecimal commission;
+        BigDecimal netAmount;
+        BigDecimal debit;
+        BigDecimal finalTotal;
+
+        if (stored != null && stored.get("totalNetAmt") != null) {
+            total = RoundOffUtil.round((BigDecimal) stored.get("totalSalesAmt"));
+            commission = RoundOffUtil.round((BigDecimal) stored.get("commissionAmt"));
+            netAmount = RoundOffUtil.round((BigDecimal) stored.get("totalNetAmt"));
+            debit = RoundOffUtil.round((BigDecimal) stored.get("debitAmt"));
+            finalTotal = RoundOffUtil.round((BigDecimal) stored.get("finalAmt"));
+        } else {
+            // Legacy fallback: no summary row for this farmer/date yet
+            total = BigDecimal.ZERO;
+            for (Map<String, Object> row : rows) {
+                Object priceObj = row.get("price");
+                if (priceObj instanceof BigDecimal) {
+                    total = total.add((BigDecimal) priceObj);
+                }
+            }
+            total = RoundOffUtil.round(total);
+
+            BigDecimal rate = commissionConfigService.getCommissionPercent(clientId).movePointLeft(2);
+            commission = RoundOffUtil.round(total.multiply(rate));
+            netAmount = RoundOffUtil.round(total.subtract(commission));
+
+            BigDecimal legacyFinal = creditAmt != null ? RoundOffUtil.round(creditAmt) : BigDecimal.ZERO;
+            finalTotal = legacyFinal;
+            debit = BigDecimal.ZERO;
+        }
 
         BigDecimal adjustmentAmt = BigDecimal.ZERO;
         if (hasAdjustment) {
@@ -71,10 +101,6 @@ public class FarmerSalesReportServiceImpl implements FarmerSalesReportService {
                 adjustmentAmt = RoundOffUtil.round(latestCashPaid);
             }
         }
-
-        BigDecimal finalTotal = creditAmt != null ? RoundOffUtil.round(creditAmt) : BigDecimal.ZERO;
-        BigDecimal baseFinal = RoundOffUtil.round(finalTotal.subtract(adjustmentAmt));
-        BigDecimal debit = netAmount.compareTo(baseFinal) == 0 ? BigDecimal.ZERO : RoundOffUtil.round(netAmount.subtract(baseFinal));
 
         // Fetch debit breakdown from BLOOMBUDDY_FARMER_TRANSACTION for display purpose
         List<BigDecimal> debAmts = farmerTransactionDao.findDebAmts(clientId, farmerId, date);

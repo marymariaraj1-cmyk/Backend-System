@@ -26,7 +26,7 @@ public class BuyerSalesReportDaoImpl implements BuyerSalesReportDao {
     private static final DateTimeFormatter SALES_DATE_FMT = DateTimeFormatter.ofPattern("dd-MM-yyyy");
 
     private static final String SELECT_BY_BUYER_DATE_SQL =
-            "SELECT SALES_ID, BUYER_ID, SALES_DATE, FLOWER_TYPE, TOTAL_WEIGHT, PERKG_RATE, PRICE, CUST_NAME " +
+            "SELECT SALES_ID, BUYER_ID, SALES_DATE, FLOWER_TYPE, TOTAL_WEIGHT, PERKG_RATE, PRICE, CUST_NAME, FARMER_NAME " +
             "FROM BLOOMBUDDY_SALES " +
             "WHERE CLIENT_ID = ? AND CLIENT_USERNAME = ? AND BUYER_ID = ? AND SALES_DATE = ? " +
             "ORDER BY SALES_ID ASC";
@@ -46,7 +46,7 @@ public class BuyerSalesReportDaoImpl implements BuyerSalesReportDao {
             "GROUP BY BUYER_ID";
 
     private static final String SELECT_DETAIL_SQL =
-            "SELECT SALES_ID, BUYER_ID, SALES_DATE, FLOWER_TYPE, TOTAL_WEIGHT, PERKG_RATE, PRICE, CUST_NAME " +
+            "SELECT SALES_ID, BUYER_ID, SALES_DATE, FLOWER_TYPE, TOTAL_WEIGHT, PERKG_RATE, PRICE, CUST_NAME, FARMER_NAME " +
             "FROM BLOOMBUDDY_SALES " +
             "WHERE CLIENT_ID = ? AND CLIENT_USERNAME = ? AND BUYER_ID IS NOT NULL " +
             "AND SALES_DATE BETWEEN ? AND ? " +
@@ -165,6 +165,7 @@ public class BuyerSalesReportDaoImpl implements BuyerSalesReportDao {
         row.put("perKgRate", RoundOffUtil.round(rs.getBigDecimal("PERKG_RATE")));
         row.put("price", rs.getBigDecimal("PRICE"));
         row.put("custName", rs.getString("CUST_NAME"));
+        row.put("farmerName", rs.getString("FARMER_NAME"));
         return row;
     }
 
@@ -175,7 +176,7 @@ public class BuyerSalesReportDaoImpl implements BuyerSalesReportDao {
             return new ArrayList<>();
         }
         String placeholders = salesIds.stream().map(id -> "?").reduce((a, b) -> a + "," + b).orElse("");
-        String sql = "SELECT SALES_ID, BUYER_ID, SALES_DATE, FLOWER_TYPE, TOTAL_WEIGHT, PERKG_RATE, PRICE, CUST_NAME "
+        String sql = "SELECT SALES_ID, BUYER_ID, SALES_DATE, FLOWER_TYPE, TOTAL_WEIGHT, PERKG_RATE, PRICE, CUST_NAME, FARMER_NAME "
                 + "FROM BLOOMBUDDY_SALES WHERE CLIENT_ID = ? AND SALES_ID IN (" + placeholders + ") ORDER BY SALES_ID ASC";
         List<Map<String, Object>> rows = new ArrayList<>();
         try (Connection conn = dataSource.getConnection();

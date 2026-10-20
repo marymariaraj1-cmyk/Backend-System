@@ -67,6 +67,10 @@ public class FarmerTransactionDaoImpl implements FarmerTransactionDao {
             "DELETE FROM BLOOMBUDDY_FARMER_TRANSACTION "
                     + "WHERE CLIENT_ID = ? AND FARMER_TRANSACTION_ID = ?";
 
+    private static final String DELETE_DEBITS_FOR_DATE_SQL =
+            "DELETE FROM BLOOMBUDDY_FARMER_TRANSACTION "
+                    + "WHERE CLIENT_ID = ? AND FARMER_ID = ? AND TRANSACTION_DATE = ? AND DEB_AMT > 0";
+
     @Override
     public FarmerTransaction insert(FarmerTransaction txn, Connection conn) {
         logger.info("insert: farmerId={}, clientId={}, excessDebitAmt={}", txn.getFarmerId(), txn.getClientId(), txn.getExcessDebitAmt());
@@ -232,6 +236,42 @@ public class FarmerTransactionDaoImpl implements FarmerTransactionDao {
         } catch (SQLException e) {
             logger.error("deleteById: SQL exception", e);
             throw new RuntimeException("Failed to delete farmer transaction", e);
+        }
+    }
+
+    @Override
+    public void setTotalDebitForDate(Long clientId, String clientUsername, String farmerId, String farmerName,
+                                    LocalDate transactionDate, java.math.BigDecimal newTotalDebit, Connection conn) {
+        logger.info("setTotalDebitForDate: clientId={}, farmerId={}, date={}, newTotalDebit={}",
+                clientId, farmerId, transactionDate, newTotalDebit);
+        try {
+            // First delete existing debit rows for this date
+            try (PreparedStatement ps = conn.prepareStatement(DELETE_DEBITS_FOR_DATE_SQL)) {
+                ps.setLong(1, clientId);
+                ps.setString(2, farmerId);
+                ps.setDate(3, Date.valueOf(transactionDate));
+                ps.executeUpdate();
+            }
+
+            // If new total debit is greater than 0, insert a single debit transaction
+            if (newTotalDebit != null && newTotalDebit.compareTo(java.math.BigDecimal.ZERO) > 0) {
+                try (PreparedStatement ps = conn.prepareStatement(INSERT_SQL, new String[]{"FARMER_TRANSACTION_ID"})) {
+                    ps.setLong(1, clientId);
+                    ps.setString(2, clientUsername);
+                    ps.setString(3, farmerId);
+                    ps.setString(4, farmerName);
+                    ps.setDate(5, Date.valueOf(transactionDate));
+                    ps.setBigDecimal(6, java.math.BigDecimal.ZERO); // cashPaidAmt
+                    ps.setBigDecimal(7, java.math.BigDecimal.ZERO); // excessDebitAmt
+                    ps.setBigDecimal(8, RoundOffUtil.round(newTotalDebit)); // debAmt
+                    ps.setString(9, "C"); // paymentMode
+                    ps.executeUpdate();
+                }
+            }
+            logger.info("setTotalDebitForDate: completed successfully");
+        } catch (SQLException e) {
+            logger.error("setTotalDebitForDate: SQL exception", e);
+            throw new RuntimeException("Failed to set total debit for date", e);
         }
     }
 

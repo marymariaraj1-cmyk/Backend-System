@@ -28,17 +28,7 @@ public class DailyCashBookDaoImpl implements DailyCashBookDao {
             "WHERE CLIENT_ID = ? AND SALES_DATE = ? " +
             "AND BUYER_ID IS NOT NULL " +
             "AND CUST_NAME IS NOT NULL " +
-            "AND LOWER(CUST_NAME) NOT LIKE '%cash%' " +
-            "AND LOWER(CUST_NAME) NOT LIKE '%upi%' " +
-            "AND LOWER(CUST_NAME) NOT LIKE '%gpay%' " +
-            "AND LOWER(CUST_NAME) NOT LIKE '%google pay%' " +
-            "AND LOWER(CUST_NAME) NOT LIKE '%phonepe%' " +
-            "AND LOWER(CUST_NAME) NOT LIKE '%paytm%' " +
-            "AND LOWER(CUST_NAME) NOT LIKE '%online%' " +
-            "AND LOWER(CUST_NAME) NOT LIKE '%card payment%' " +
-            "AND LOWER(CUST_NAME) NOT LIKE '%neft%' " +
-            "AND LOWER(CUST_NAME) NOT LIKE '%rtgs%' " +
-            "AND LOWER(CUST_NAME) NOT LIKE '%imps%'";
+            "AND LOWER(CUST_NAME) NOT LIKE '%cash%'";
 
     private static final String FARMER_EXCESS_DEBIT_LIST_SQL =
             "SELECT FARMER_ID, FARMER_NAME, COALESCE(SUM(EXCESS_DEBIT_AMT), 0) AS AMOUNT " +

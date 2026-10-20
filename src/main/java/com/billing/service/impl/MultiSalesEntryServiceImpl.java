@@ -15,6 +15,7 @@ import com.billing.entity.FarmerLedger;
 import com.billing.entity.Sales;
 import com.billing.entity.SalesTotalSummary;
 import com.billing.service.BagCountConfigService;
+import com.billing.service.FarmerCommissionConfigService;
 import com.billing.service.LedgerSettlementService;
 import com.billing.service.MultiSalesEntryService;
 import com.billing.util.RoundOffUtil;
@@ -60,6 +61,7 @@ public class MultiSalesEntryServiceImpl implements MultiSalesEntryService {
     private final FarmerTransactionDao farmerTransactionDao;
     private final LedgerSettlementService ledgerSettlementService;
     private final BagCountConfigService bagCountConfigService;
+    private final FarmerCommissionConfigService commissionConfigService;
 
     @Autowired
     public MultiSalesEntryServiceImpl(DataSource dataSource,
@@ -73,7 +75,8 @@ public class MultiSalesEntryServiceImpl implements MultiSalesEntryService {
                                        SalesTotalSummaryDao salesTotalSummaryDao,
                                        FarmerTransactionDao farmerTransactionDao,
                                        LedgerSettlementService ledgerSettlementService,
-                                       BagCountConfigService bagCountConfigService) {
+                                       BagCountConfigService bagCountConfigService,
+                                       FarmerCommissionConfigService commissionConfigService) {
         this.dataSource = dataSource;
         this.multiSalesEntryDao = multiSalesEntryDao;
         this.farmerMasterDao = farmerMasterDao;
@@ -86,6 +89,7 @@ public class MultiSalesEntryServiceImpl implements MultiSalesEntryService {
         this.farmerTransactionDao = farmerTransactionDao;
         this.ledgerSettlementService = ledgerSettlementService;
         this.bagCountConfigService = bagCountConfigService;
+        this.commissionConfigService = commissionConfigService;
     }
 
     @Override
@@ -162,7 +166,8 @@ public class MultiSalesEntryServiceImpl implements MultiSalesEntryService {
                 .map(Sales::getPrice)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        BigDecimal commission = RoundOffUtil.round(grandTotal.multiply(new BigDecimal("0.10")));
+        BigDecimal commissionRate = commissionConfigService.getCommissionPercent(clientId).movePointLeft(2);
+        BigDecimal commission = RoundOffUtil.round(grandTotal.multiply(commissionRate));
         BigDecimal netAmount = RoundOffUtil.round(grandTotal.subtract(commission));
         BigDecimal finalTotal = netAmount;
 
@@ -209,14 +214,12 @@ public class MultiSalesEntryServiceImpl implements MultiSalesEntryService {
                         .map(Sales::getPrice)
                         .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-                BigDecimal farmerCredit;
+                BigDecimal farmerCommission = BigDecimal.ZERO;
                 if (grandTotal.compareTo(BigDecimal.ZERO) > 0) {
-                    farmerCredit = RoundOffUtil.round(farmerTotal.subtract(
-                            farmerTotal.multiply(commission).divide(grandTotal, 2, RoundingMode.HALF_UP)
-                    ));
-                } else {
-                    farmerCredit = farmerTotal;
+                    farmerCommission = RoundOffUtil.round(
+                            farmerTotal.multiply(commission).divide(grandTotal, 2, RoundingMode.HALF_UP));
                 }
+                BigDecimal farmerCredit = RoundOffUtil.round(farmerTotal.subtract(farmerCommission));
 
                 FarmerLedger farmerLedger = new FarmerLedger();
                 farmerLedger.setClientId(clientId);
@@ -232,12 +235,6 @@ public class MultiSalesEntryServiceImpl implements MultiSalesEntryService {
                 farmerLedger.setSalesIds(farmerSalesIds);
                 farmerLedgerDao.insert(farmerLedger, conn);
                 ledgerSettlementService.settleFarmerIfClosed(clientId, farmerId, date, conn);
-
-                BigDecimal farmerCommission = BigDecimal.ZERO;
-                if (grandTotal.compareTo(BigDecimal.ZERO) > 0) {
-                    farmerCommission = RoundOffUtil.round(
-                            farmerTotal.multiply(commission).divide(grandTotal, 2, RoundingMode.HALF_UP));
-                }
 
                 // === Task 1: Distribute global debit per farmer proportionally (Task1 insert before Task2 SUM) ===
                 BigDecimal farmerDebit;

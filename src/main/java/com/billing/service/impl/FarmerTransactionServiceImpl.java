@@ -252,8 +252,10 @@ public class FarmerTransactionServiceImpl implements FarmerTransactionService {
      * <ul>
      *   <li>no ledger row for the sales date, or the row is not {@code LEDGER_ACTIVE = 'Y'} (settled / merged away)</li>
      *   <li>rows owned by Farmer Account Check (cash paid, or settlement marker {@code SALES_IDS = '0'})</li>
-     *   <li>debit rows written by Sales Entry / Multi Sales Entry for a day that has sales</li>
      * </ul>
+     * Sales Entry / Multi Sales Entry debit rows are editable: {@link #applyDelta} already moves the
+     * matching debit into BLOOMBUDDY_SALES_TOTALSUMMARY and BLOOMBUDDY_FARMER_LEDGER, so the sales
+     * screens and this screen stay in step in both directions.
      */
     private void assertMutable(FarmerTransaction txn, Connection conn) {
         LocalDate date = txn.getTransactionDate();
@@ -279,12 +281,6 @@ public class FarmerTransactionServiceImpl implements FarmerTransactionService {
         if ("0".equals(salesIds)) {
             throw new IllegalArgumentException(
                     "This record belongs to a Farmer Account Check settlement and cannot be edited or deleted here.");
-        }
-
-        boolean hasDebit = txn.getDebAmt() != null && txn.getDebAmt().compareTo(BigDecimal.ZERO) > 0;
-        if (!salesIds.isEmpty() && hasDebit) {
-            throw new IllegalArgumentException(
-                    "This record belongs to Sales Entry / Multi Sales Entry for a day with sales. Edit it from the Sales Edit screen.");
         }
     }
 

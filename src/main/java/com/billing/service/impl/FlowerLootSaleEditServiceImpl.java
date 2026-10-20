@@ -12,6 +12,7 @@ import com.billing.dto.FlowerLootSaleEditRequestDto;
 import com.billing.dto.FlowerLootSaleEditRowDto;
 import com.billing.entity.BuyerLedger;
 import com.billing.entity.FarmerLedger;
+import com.billing.service.FarmerCommissionConfigService;
 import com.billing.service.FlowerLootSaleEditService;
 import com.billing.service.LedgerSettlementService;
 import com.billing.util.RoundOffUtil;
@@ -41,8 +42,6 @@ public class FlowerLootSaleEditServiceImpl implements FlowerLootSaleEditService 
 
     private static final Logger logger = LoggerFactory.getLogger(FlowerLootSaleEditServiceImpl.class);
 
-    private static final BigDecimal TEN_PERCENT = new BigDecimal("0.10");
-
     private static final Set<String> DIRECT_PAYMENT_NAMES = new HashSet<>(java.util.Arrays.asList(
             "cash", "cash payment", "cash sale",
             "upi", "upi payment",
@@ -64,6 +63,7 @@ public class FlowerLootSaleEditServiceImpl implements FlowerLootSaleEditService 
     private final SalesTotalSummaryDao salesTotalSummaryDao;
     private final FlowerLootSaleEditDao flowerLootSaleEditDao;
     private final LedgerSettlementService ledgerSettlementService;
+    private final FarmerCommissionConfigService commissionConfigService;
 
     @Autowired
     public FlowerLootSaleEditServiceImpl(DataSource dataSource,
@@ -75,7 +75,8 @@ public class FlowerLootSaleEditServiceImpl implements FlowerLootSaleEditService 
                                          SalesEditDao salesEditDao,
                                          SalesTotalSummaryDao salesTotalSummaryDao,
                                          FlowerLootSaleEditDao flowerLootSaleEditDao,
-                                         LedgerSettlementService ledgerSettlementService) {
+                                         LedgerSettlementService ledgerSettlementService,
+                                         FarmerCommissionConfigService commissionConfigService) {
         this.dataSource = dataSource;
         this.farmerMasterDao = farmerMasterDao;
         this.flowerMasterDao = flowerMasterDao;
@@ -86,6 +87,7 @@ public class FlowerLootSaleEditServiceImpl implements FlowerLootSaleEditService 
         this.salesTotalSummaryDao = salesTotalSummaryDao;
         this.flowerLootSaleEditDao = flowerLootSaleEditDao;
         this.ledgerSettlementService = ledgerSettlementService;
+        this.commissionConfigService = commissionConfigService;
     }
 
     @Override
@@ -524,7 +526,7 @@ public class FlowerLootSaleEditServiceImpl implements FlowerLootSaleEditService 
         }
 
         String storedName = String.valueOf(dayRows.get(0).get("farmerName"));
-        BigDecimal commission = RoundOffUtil.round(total.multiply(TEN_PERCENT));
+        BigDecimal commission = RoundOffUtil.round(total.multiply(commissionConfigService.getCommissionPercent(clientId).movePointLeft(2)));
         BigDecimal net = total.subtract(commission);
 
         salesEditDao.reconcileSummary(clientId, clientUsername, farmerId, storedName,

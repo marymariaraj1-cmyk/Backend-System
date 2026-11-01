@@ -511,6 +511,26 @@ public class FlowerLootSaleEditServiceImpl implements FlowerLootSaleEditService 
         }
 
         if (dayRows.isEmpty()) {
+            Map<String, Object> existingSummary = salesEditDao.fetchSummary(clientId, farmerId, date);
+            BigDecimal debit = BigDecimal.ZERO;
+            if (existingSummary != null && existingSummary.get("debitAmt") != null) {
+                debit = RoundOffUtil.round(toBigDecimal(existingSummary.get("debitAmt")));
+            }
+            if (debit.compareTo(BigDecimal.ZERO) > 0) {
+                salesEditDao.reconcileSummary(clientId, clientUsername, farmerId, farmerName, date,
+                        BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, debit,
+                        RoundOffUtil.round(debit.negate()), conn);
+                FarmerLedger ledgerRow = farmerLedgerDao.findRow(clientId, farmerId, date, conn);
+                if (ledgerRow != null) {
+                    farmerLedgerDao.setCreditAmt(clientId, clientUsername, farmerId, farmerName, date,
+                            RoundOffUtil.round(debit.negate()), conn);
+                    farmerLedgerDao.updateSalesIds(clientId, farmerId, date, null, conn);
+                }
+                ledgerSettlementService.settleFarmerIfClosed(clientId, farmerId, date, conn);
+                logger.info("recalcFarmerAggregate: no remaining FLS farmer rows for farmerId={}, date={}; kept debit-only summary debit={}",
+                        farmerId, date, debit);
+                return;
+            }
             salesTotalSummaryDao.deleteRow(clientId, farmerId, date, conn);
             FarmerLedger ledgerRow = farmerLedgerDao.findRow(clientId, farmerId, date, conn);
             if (ledgerRow != null) {
@@ -529,12 +549,21 @@ public class FlowerLootSaleEditServiceImpl implements FlowerLootSaleEditService 
         BigDecimal commission = RoundOffUtil.round(total.multiply(commissionConfigService.getCommissionPercent(clientId).movePointLeft(2)));
         BigDecimal net = total.subtract(commission);
 
+        // Preserve a debit already recorded for this farmer/date (Farmer Transaction) instead of
+        // resetting it to zero when the sale is edited.
+        BigDecimal debit = BigDecimal.ZERO;
+        Map<String, Object> summaryRow = salesEditDao.fetchSummary(clientId, farmerId, date);
+        if (summaryRow != null && summaryRow.get("debitAmt") != null) {
+            debit = RoundOffUtil.round(toBigDecimal(summaryRow.get("debitAmt")));
+        }
+        BigDecimal finalAmt = RoundOffUtil.round(net.subtract(debit));
+
         salesEditDao.reconcileSummary(clientId, clientUsername, farmerId, storedName,
-                date, total, commission, net, BigDecimal.ZERO, net, conn);
+                date, total, commission, net, debit, finalAmt, conn);
 
         FarmerLedger ledgerRow = farmerLedgerDao.findRow(clientId, farmerId, date, conn);
         if (ledgerRow != null) {
-            farmerLedgerDao.setCreditAmt(clientId, clientUsername, farmerId, storedName, date, net, conn);
+            farmerLedgerDao.setCreditAmt(clientId, clientUsername, farmerId, storedName, date, finalAmt, conn);
         } else {
             FarmerLedger freshLedger = new FarmerLedger();
             freshLedger.setClientId(clientId);
@@ -543,7 +572,7 @@ public class FlowerLootSaleEditServiceImpl implements FlowerLootSaleEditService 
             freshLedger.setFarmerName(storedName);
             freshLedger.setSalesDate(date);
             freshLedger.setDebitAmt(BigDecimal.ZERO);
-            freshLedger.setCreditAmt(net);
+            freshLedger.setCreditAmt(finalAmt);
             farmerLedgerDao.insert(freshLedger, conn);
         }
         farmerLedgerDao.updateSalesIds(clientId, farmerId, date, String.join(",", salesIds), conn);

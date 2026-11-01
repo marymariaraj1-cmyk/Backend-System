@@ -6,6 +6,7 @@ public class SalesEditRowDto {
     private String flowerType;
     private String totalWeight;
     private String price;
+    private String rate;
     private String amount;
     private Integer bagCount;
     private String customerName;
@@ -35,11 +36,25 @@ public class SalesEditRowDto {
     }
 
     public String getPrice() {
-        return price;
+        if (price != null && !price.trim().isEmpty()) {
+            return price;
+        }
+        return rate;
     }
 
     public void setPrice(String price) {
         this.price = price;
+    }
+
+    public String getRate() {
+        if (rate != null && !rate.trim().isEmpty()) {
+            return rate;
+        }
+        return price;
+    }
+
+    public void setRate(String rate) {
+        this.rate = rate;
     }
 
     public String getAmount() {

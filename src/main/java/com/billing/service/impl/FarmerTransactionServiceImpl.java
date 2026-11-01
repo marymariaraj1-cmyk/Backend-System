@@ -6,6 +6,7 @@ import com.billing.dao.FarmerTransactionDao;
 import com.billing.dao.SalesTotalSummaryDao;
 import com.billing.entity.FarmerLedger;
 import com.billing.entity.FarmerTransaction;
+import com.billing.entity.SalesTotalSummary;
 import com.billing.service.FarmerTransactionService;
 import com.billing.service.LedgerSettlementService;
 import com.billing.util.RoundOffUtil;
@@ -162,7 +163,11 @@ public class FarmerTransactionServiceImpl implements FarmerTransactionService {
                 if (summaryRow != null) {
                     salesTotalSummaryDao.adjustDebit(clientId, farmerId, date, debitAmount, conn);
                 } else {
-                    logger.warn("saveTransaction: no sales total summary row for farmerId={}; skipping summary debit adjustment", farmerId);
+                    // No sale exists for this date yet. Persist a debit-only summary row so the
+                    // farmer sales report popup (total debit) agrees with the debit breakdown that
+                    // is read from BLOOMBUDDY_FARMER_TRANSACTION. Sale/commission/net stay zero.
+                    insertDebitOnlySummary(clientId, clientUsername, farmerId, farmerName.trim(), date,
+                            debitAmount, conn);
                 }
             }
 
@@ -305,9 +310,63 @@ public class FarmerTransactionServiceImpl implements FarmerTransactionService {
             Map<String, Object> summaryRow = salesTotalSummaryDao.findRow(clientId, farmerId, date);
             if (summaryRow != null) {
                 salesTotalSummaryDao.adjustDebit(clientId, farmerId, date, deltaDebit, conn);
-            } else {
-                logger.warn("applyDelta: no sales total summary row for farmerId={}; skipping summary debit adjustment", farmerId);
+                // If the last sale on this date was already removed, a pure debit row can be left
+                // sitting at zero after an edit/delete; drop it so the report has no phantom entry.
+                Map<String, Object> after = salesTotalSummaryDao.findRow(clientId, farmerId, date);
+                if (isAllZeroSummary(after)) {
+                    salesTotalSummaryDao.deleteRow(clientId, farmerId, date, conn);
+                    logger.info("applyDelta: removed empty summary row for farmerId={}, date={}", farmerId, date);
+                }
+            } else if (zeroIfNull(newDebit).compareTo(BigDecimal.ZERO) > 0) {
+                insertDebitOnlySummary(clientId, txn.getClientUsername(), farmerId, txn.getFarmerName(), date,
+                        zeroIfNull(newDebit), conn);
             }
+        }
+    }
+
+    /**
+     * Creates a summary row that carries only the farmer's debit for a date on which no sale has
+     * been recorded yet. Sales/commission/net are zero and {@code FINAL_AMT} is the negated debit,
+     * matching the {@code FINAL_AMT = TOTAL_NET_AMT - DEBIT_AMT} invariant. A later sale on the same
+     * date preserves this debit (see the sale save/recalc services) instead of overwriting it.
+     */
+    private void insertDebitOnlySummary(Long clientId, String clientUsername, String farmerId, String farmerName,
+                                        LocalDate date, BigDecimal debitAmount, Connection conn) {
+        BigDecimal debit = RoundOffUtil.round(debitAmount);
+        SalesTotalSummary summary = new SalesTotalSummary();
+        summary.setClientId(clientId);
+        summary.setClientUsername(clientUsername);
+        summary.setFarmerId(farmerId);
+        summary.setFarmerName(farmerName);
+        summary.setSalesDate(date);
+        summary.setTotalSalesAmt(BigDecimal.ZERO);
+        summary.setCommissionAmt(BigDecimal.ZERO);
+        summary.setTotalNetAmt(BigDecimal.ZERO);
+        summary.setDebitAmt(debit);
+        summary.setFinalAmt(RoundOffUtil.round(debit.negate()));
+        salesTotalSummaryDao.upsert(summary, conn);
+        logger.info("insertDebitOnlySummary: created debit-only summary for farmerId={}, date={}, debit={}",
+                farmerId, date, debit);
+    }
+
+    private boolean isAllZeroSummary(Map<String, Object> row) {
+        if (row == null) {
+            return false;
+        }
+        return isZeroAmount(row.get("totalSalesAmt"))
+                && isZeroAmount(row.get("commissionAmt"))
+                && isZeroAmount(row.get("totalNetAmt"))
+                && isZeroAmount(row.get("debitAmt"));
+    }
+
+    private boolean isZeroAmount(Object value) {
+        if (value == null) {
+            return true;
+        }
+        try {
+            return new BigDecimal(String.valueOf(value)).compareTo(BigDecimal.ZERO) == 0;
+        } catch (NumberFormatException e) {
+            return false;
         }
     }
 

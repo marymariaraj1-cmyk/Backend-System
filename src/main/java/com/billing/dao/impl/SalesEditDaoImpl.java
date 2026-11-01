@@ -1,6 +1,7 @@
 package com.billing.dao.impl;
 
 import com.billing.dao.SalesEditDao;
+import com.billing.util.SalesRecordType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -27,6 +28,7 @@ public class SalesEditDaoImpl implements SalesEditDao {
             "SELECT SALES_ID, FLOWER_TYPE, TOTAL_WEIGHT, PERKG_RATE, PRICE, CUST_NAME, BUYER_ID, FLOWER_ID, BAG_COUNT "
                     + "FROM BLOOMBUDDY_SALES "
                     + "WHERE CLIENT_ID = ? AND FARMER_ID = ? AND SALES_DATE = ? "
+                    + "AND (CUST_NAME IS NULL OR CUST_NAME <> '" + SalesRecordType.FLOWER_INTAKE_SALE_MARKER + "') "
                     + "ORDER BY SALES_ID";
 
     private static final String FETCH_SUMMARY_SQL =

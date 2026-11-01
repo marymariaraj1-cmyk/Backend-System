@@ -56,4 +56,22 @@ public class FarmerTransactionController {
         List<FarmerTransaction> history = farmerTransactionService.getTransactionHistory(farmerName, fromDate, toDate, clientId);
         return ResponseEntity.ok(ApiResponse.success("OK", history));
     }
+
+    @PutMapping("/update")
+    public ResponseEntity<ApiResponse<FarmerTransaction>> update(@RequestBody FarmerTransactionRequestDto request) {
+        Long clientId = SessionConfig.getCurrentClientId();
+        logger.info("update: farmerTransactionId={}, clientId={}", request.getFarmerTransactionId(), clientId);
+        FarmerTransaction updated = farmerTransactionService.updateTransaction(
+                request.getFarmerTransactionId(), request.getExcessDebitAmt(), request.getDebitAmt(),
+                request.getPaymentMode(), clientId);
+        return ResponseEntity.ok(ApiResponse.success("Transaction updated successfully", updated));
+    }
+
+    @DeleteMapping("/delete")
+    public ResponseEntity<ApiResponse<Void>> delete(@RequestParam Long farmerTransactionId) {
+        Long clientId = SessionConfig.getCurrentClientId();
+        logger.info("delete: farmerTransactionId={}, clientId={}", farmerTransactionId, clientId);
+        farmerTransactionService.deleteTransaction(farmerTransactionId, clientId);
+        return ResponseEntity.ok(ApiResponse.success("Transaction deleted successfully", null));
+    }
 }

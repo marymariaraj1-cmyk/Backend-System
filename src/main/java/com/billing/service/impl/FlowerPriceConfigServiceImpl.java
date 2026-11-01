@@ -2,6 +2,7 @@ package com.billing.service.impl;
 
 import com.billing.dao.FlowerPriceConfigDao;
 import com.billing.service.FlowerPriceConfigService;
+import com.billing.util.SalesUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -90,7 +91,7 @@ public class FlowerPriceConfigServiceImpl implements FlowerPriceConfigService {
 
     @Override
     public List<Map<String, Object>> getTickerData(Long clientId) {
-        return flowerPriceConfigDao.findTickerData(clientId, LocalDate.now());
+        return flowerPriceConfigDao.findTickerData(clientId, SalesUtil.today());
     }
 
     @Override

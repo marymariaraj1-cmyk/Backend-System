@@ -17,4 +17,19 @@ public interface FarmerTransactionDao {
     List<java.math.BigDecimal> findDebAmts(Long clientId, String farmerId, LocalDate transactionDate);
 
     java.math.BigDecimal findLatestCashPaid(Long clientId, String farmerId, LocalDate transactionDate);
+
+    FarmerTransaction findById(Long clientId, Long farmerTransactionId, Connection conn);
+
+    int updateAmounts(Long clientId, Long farmerTransactionId, java.math.BigDecimal excessDebitAmt,
+                      java.math.BigDecimal debAmt, String paymentMode, Connection conn);
+
+    int deleteById(Long clientId, Long farmerTransactionId, Connection conn);
+
+    /**
+     * Sets total debit amount for the given farmer and date to match newTotalDebit.
+     * This will zero out all existing debit entries for that date and insert a single
+     * debit transaction entry if newTotalDebit > 0.
+     */
+    void setTotalDebitForDate(Long clientId, String clientUsername, String farmerId, String farmerName,
+                             LocalDate transactionDate, java.math.BigDecimal newTotalDebit, Connection conn);
 }

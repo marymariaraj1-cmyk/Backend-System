@@ -2,6 +2,7 @@ package com.billing.dao.impl;
 
 import com.billing.dao.DashboardDao;
 import com.billing.util.RoundOffUtil;
+import com.billing.util.SalesUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Repository;
@@ -43,7 +44,9 @@ public class DashboardDaoImpl implements DashboardDao {
             "WHERE CLIENT_ID = ? AND SALES_DATE = DATE_SUB(CURDATE(), INTERVAL 1 DAY)";
 
     private static final String TODAY_SALES_METRICS_SQL =
-            "SELECT COALESCE(SUM(TOTAL_WEIGHT), 0) AS TODAY_KG, " +
+            "SELECT " +
+            "(SELECT COALESCE(SUM(TOTAL_WEIGHT), 0) FROM BLOOMBUDDY_SALES " +
+            "WHERE CLIENT_ID = ? AND SALES_DATE = CURDATE()" + SalesUtil.FARMER_SIDE_FILTER + ") AS TODAY_KG, " +
             "COUNT(DISTINCT FARMER_ID) AS ACTIVE_FARMERS, " +
             "COUNT(DISTINCT BUYER_ID) AS ACTIVE_BUYERS " +
             "FROM BLOOMBUDDY_SALES " +
@@ -61,7 +64,7 @@ public class DashboardDaoImpl implements DashboardDao {
     private static final String TODAY_CASH_BOOK_SQL =
             "SELECT " +
             "(SELECT COALESCE(SUM(PRICE), 0) FROM BLOOMBUDDY_SALES " +
-            "WHERE CLIENT_ID = ? AND SALES_DATE = CURDATE()) AS TODAY_PAKKI, " +
+            "WHERE CLIENT_ID = ? AND SALES_DATE = CURDATE()" + SalesUtil.BUYER_SIDE_FILTER + ") AS TODAY_PAKKI, " +
             "(SELECT COALESCE(SUM(CASH_PAID_AMT), 0) FROM BLOOMBUDDY_BUYER_TRANSACTION " +
             "WHERE CLIENT_ID = ? AND TRANSACTION_DATE = CURDATE() AND PAYMENT_MODE = 'C') AS TODAY_VARAVU, " +
             "(SELECT COALESCE(SUM(FINAL_AMT), 0) FROM BLOOMBUDDY_SALES_TOTALSUMMARY " +
@@ -94,6 +97,7 @@ public class DashboardDaoImpl implements DashboardDao {
             "FROM BLOOMBUDDY_SALES " +
             "WHERE CLIENT_ID = ? AND SALES_DATE BETWEEN ? AND ? " +
             "AND FLOWER_TYPE IS NOT NULL AND FLOWER_TYPE <> '' " +
+            SalesUtil.FARMER_SIDE_FILTER + " " +
             "GROUP BY FLOWER_TYPE ORDER BY TOTAL_KG DESC LIMIT 5";
 
     private static final String TOP_FARMERS_SQL =
@@ -153,7 +157,8 @@ public class DashboardDaoImpl implements DashboardDao {
             "OR LOWER(COALESCE(CUST_NAME,'')) LIKE '%rtgs%' OR LOWER(COALESCE(CUST_NAME,'')) LIKE '%imps%' " +
             "THEN PRICE ELSE 0 END), 0) AS OTHER_AMT " +
             "FROM BLOOMBUDDY_SALES " +
-            "WHERE CLIENT_ID = ? AND SALES_DATE BETWEEN ? AND ?";
+            "WHERE CLIENT_ID = ? AND SALES_DATE BETWEEN ? AND ?" +
+            SalesUtil.BUYER_SIDE_FILTER;
 
     @Override
     public Map<String, Object> findTodayKpi(Long clientId) {
@@ -161,7 +166,7 @@ public class DashboardDaoImpl implements DashboardDao {
         Map<String, Object> kpi = new LinkedHashMap<>();
         Map<String, Object> today = querySingleRow(TODAY_SUMMARY_SQL, clientId);
         Map<String, Object> yesterday = querySingleRow(YESTERDAY_SUMMARY_SQL, clientId);
-        Map<String, Object> metrics = querySingleRow(TODAY_SALES_METRICS_SQL, clientId);
+        Map<String, Object> metrics = querySingleRow(TODAY_SALES_METRICS_SQL, clientId, clientId);
 
         kpi.put("todaySales", RoundOffUtil.round(toBigDecimal(today.get("TODAY_SALES"))));
         kpi.put("todayCommission", RoundOffUtil.round(toBigDecimal(today.get("TODAY_COMMISSION"))));
@@ -359,11 +364,13 @@ public class DashboardDaoImpl implements DashboardDao {
         return row;
     }
 
-    private Map<String, Object> querySingleRow(String sql, Long clientId) {
+    private Map<String, Object> querySingleRow(String sql, Long... clientIds) {
         Map<String, Object> row = new LinkedHashMap<>();
         try (Connection conn = dataSource.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setLong(1, clientId);
+            for (int i = 0; i < clientIds.length; i++) {
+                ps.setLong(i + 1, clientIds[i]);
+            }
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) {
                     ResultSetMetaData meta = rs.getMetaData();
@@ -373,7 +380,7 @@ public class DashboardDaoImpl implements DashboardDao {
                 }
             }
         } catch (SQLException e) {
-            logger.error("querySingleRow: SQL exception for clientId={}", clientId, e);
+            logger.error("querySingleRow: SQL exception", e);
             throw new RuntimeException("Failed to fetch dashboard metric", e);
         }
         return row;

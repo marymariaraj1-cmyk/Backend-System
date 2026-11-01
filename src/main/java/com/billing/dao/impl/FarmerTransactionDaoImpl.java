@@ -52,6 +52,25 @@ public class FarmerTransactionDaoImpl implements FarmerTransactionDao {
                     + "WHERE CLIENT_ID = ? AND FARMER_ID = ? AND TRANSACTION_DATE = ? AND CASH_PAID_AMT > 0 "
                     + "ORDER BY FARMER_TRANSACTION_ID DESC LIMIT 1";
 
+    private static final String SELECT_COLUMNS =
+            "FARMER_TRANSACTION_ID, CLIENT_ID, CLIENT_USERNAME, FARMER_ID, FARMER_NAME, TRANSACTION_DATE, CASH_PAID_AMT, EXCESS_DEBIT_AMT, DEB_AMT, PAYMENT_MODE";
+
+    private static final String SELECT_BY_ID_SQL =
+            "SELECT " + SELECT_COLUMNS + " FROM BLOOMBUDDY_FARMER_TRANSACTION "
+                    + "WHERE CLIENT_ID = ? AND FARMER_TRANSACTION_ID = ?";
+
+    private static final String UPDATE_AMOUNTS_SQL =
+            "UPDATE BLOOMBUDDY_FARMER_TRANSACTION SET EXCESS_DEBIT_AMT = ?, DEB_AMT = ?, PAYMENT_MODE = ? "
+                    + "WHERE CLIENT_ID = ? AND FARMER_TRANSACTION_ID = ?";
+
+    private static final String DELETE_BY_ID_SQL =
+            "DELETE FROM BLOOMBUDDY_FARMER_TRANSACTION "
+                    + "WHERE CLIENT_ID = ? AND FARMER_TRANSACTION_ID = ?";
+
+    private static final String DELETE_DEBITS_FOR_DATE_SQL =
+            "DELETE FROM BLOOMBUDDY_FARMER_TRANSACTION "
+                    + "WHERE CLIENT_ID = ? AND FARMER_ID = ? AND TRANSACTION_DATE = ? AND DEB_AMT > 0";
+
     @Override
     public FarmerTransaction insert(FarmerTransaction txn, Connection conn) {
         logger.info("insert: farmerId={}, clientId={}, excessDebitAmt={}", txn.getFarmerId(), txn.getClientId(), txn.getExcessDebitAmt());
@@ -165,6 +184,95 @@ public class FarmerTransactionDaoImpl implements FarmerTransactionDao {
             throw new RuntimeException("Failed to fetch latest farmer cash paid amount", e);
         }
         return null;
+    }
+
+    @Override
+    public FarmerTransaction findById(Long clientId, Long farmerTransactionId, Connection conn) {
+        logger.info("findById: clientId={}, farmerTransactionId={}", clientId, farmerTransactionId);
+        try (PreparedStatement ps = conn.prepareStatement(SELECT_BY_ID_SQL)) {
+            ps.setLong(1, clientId);
+            ps.setLong(2, farmerTransactionId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return mapRow(rs);
+                }
+            }
+        } catch (SQLException e) {
+            logger.error("findById: SQL exception", e);
+            throw new RuntimeException("Failed to fetch farmer transaction", e);
+        }
+        return null;
+    }
+
+    @Override
+    public int updateAmounts(Long clientId, Long farmerTransactionId, java.math.BigDecimal excessDebitAmt,
+                             java.math.BigDecimal debAmt, String paymentMode, Connection conn) {
+        logger.info("updateAmounts: clientId={}, farmerTransactionId={}, excessDebitAmt={}, debAmt={}, paymentMode={}",
+                clientId, farmerTransactionId, excessDebitAmt, debAmt, paymentMode);
+        try (PreparedStatement ps = conn.prepareStatement(UPDATE_AMOUNTS_SQL)) {
+            ps.setBigDecimal(1, excessDebitAmt);
+            ps.setBigDecimal(2, debAmt);
+            ps.setString(3, paymentMode != null ? paymentMode : "C");
+            ps.setLong(4, clientId);
+            ps.setLong(5, farmerTransactionId);
+            int updated = ps.executeUpdate();
+            logger.info("updateAmounts: updated rows={}", updated);
+            return updated;
+        } catch (SQLException e) {
+            logger.error("updateAmounts: SQL exception", e);
+            throw new RuntimeException("Failed to update farmer transaction", e);
+        }
+    }
+
+    @Override
+    public int deleteById(Long clientId, Long farmerTransactionId, Connection conn) {
+        logger.info("deleteById: clientId={}, farmerTransactionId={}", clientId, farmerTransactionId);
+        try (PreparedStatement ps = conn.prepareStatement(DELETE_BY_ID_SQL)) {
+            ps.setLong(1, clientId);
+            ps.setLong(2, farmerTransactionId);
+            int deleted = ps.executeUpdate();
+            logger.info("deleteById: deleted rows={}", deleted);
+            return deleted;
+        } catch (SQLException e) {
+            logger.error("deleteById: SQL exception", e);
+            throw new RuntimeException("Failed to delete farmer transaction", e);
+        }
+    }
+
+    @Override
+    public void setTotalDebitForDate(Long clientId, String clientUsername, String farmerId, String farmerName,
+                                    LocalDate transactionDate, java.math.BigDecimal newTotalDebit, Connection conn) {
+        logger.info("setTotalDebitForDate: clientId={}, farmerId={}, date={}, newTotalDebit={}",
+                clientId, farmerId, transactionDate, newTotalDebit);
+        try {
+            // First delete existing debit rows for this date
+            try (PreparedStatement ps = conn.prepareStatement(DELETE_DEBITS_FOR_DATE_SQL)) {
+                ps.setLong(1, clientId);
+                ps.setString(2, farmerId);
+                ps.setDate(3, Date.valueOf(transactionDate));
+                ps.executeUpdate();
+            }
+
+            // If new total debit is greater than 0, insert a single debit transaction
+            if (newTotalDebit != null && newTotalDebit.compareTo(java.math.BigDecimal.ZERO) > 0) {
+                try (PreparedStatement ps = conn.prepareStatement(INSERT_SQL, new String[]{"FARMER_TRANSACTION_ID"})) {
+                    ps.setLong(1, clientId);
+                    ps.setString(2, clientUsername);
+                    ps.setString(3, farmerId);
+                    ps.setString(4, farmerName);
+                    ps.setDate(5, Date.valueOf(transactionDate));
+                    ps.setBigDecimal(6, java.math.BigDecimal.ZERO); // cashPaidAmt
+                    ps.setBigDecimal(7, java.math.BigDecimal.ZERO); // excessDebitAmt
+                    ps.setBigDecimal(8, RoundOffUtil.round(newTotalDebit)); // debAmt
+                    ps.setString(9, "C"); // paymentMode
+                    ps.executeUpdate();
+                }
+            }
+            logger.info("setTotalDebitForDate: completed successfully");
+        } catch (SQLException e) {
+            logger.error("setTotalDebitForDate: SQL exception", e);
+            throw new RuntimeException("Failed to set total debit for date", e);
+        }
     }
 
     private FarmerTransaction mapRow(ResultSet rs) throws SQLException {

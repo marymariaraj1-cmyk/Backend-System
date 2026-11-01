@@ -6,6 +6,7 @@ import com.billing.dao.FarmerTransactionDao;
 import com.billing.dao.SalesTotalSummaryDao;
 import com.billing.entity.FarmerLedger;
 import com.billing.entity.FarmerTransaction;
+import com.billing.entity.SalesTotalSummary;
 import com.billing.service.FarmerTransactionService;
 import com.billing.service.LedgerSettlementService;
 import com.billing.util.RoundOffUtil;
@@ -162,7 +163,11 @@ public class FarmerTransactionServiceImpl implements FarmerTransactionService {
                 if (summaryRow != null) {
                     salesTotalSummaryDao.adjustDebit(clientId, farmerId, date, debitAmount, conn);
                 } else {
-                    logger.warn("saveTransaction: no sales total summary row for farmerId={}; skipping summary debit adjustment", farmerId);
+                    // No sale exists for this date yet. Persist a debit-only summary row so the
+                    // farmer sales report popup (total debit) agrees with the debit breakdown that
+                    // is read from BLOOMBUDDY_FARMER_TRANSACTION. Sale/commission/net stay zero.
+                    insertDebitOnlySummary(clientId, clientUsername, farmerId, farmerName.trim(), date,
+                            debitAmount, conn);
                 }
             }
 
@@ -218,5 +223,278 @@ public class FarmerTransactionServiceImpl implements FarmerTransactionService {
 
     private boolean isValidAmount(String value) {
         return value != null && value.matches("^\\d+(\\.\\d{1,2})?$");
+    }
+
+    private BigDecimal parsePositiveAmount(String value, String label) {
+        if (value == null || value.trim().isEmpty()) {
+            return null;
+        }
+        String trimmed = value.trim();
+        if (!isValidAmount(trimmed)) {
+            throw new IllegalArgumentException(label + " must be a valid amount (digits, up to 2 decimal places, no negative values)");
+        }
+        BigDecimal amount = RoundOffUtil.round(new BigDecimal(trimmed));
+        if (amount.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalArgumentException(label + " must be greater than zero");
+        }
+        return amount;
+    }
+
+    private String normalizeMode(String paymentMode) {
+        String normalizedMode = paymentMode != null ? paymentMode.trim().toUpperCase() : "C";
+        if (!"C".equals(normalizedMode) && !"U".equals(normalizedMode)) {
+            normalizedMode = "C";
+        }
+        return normalizedMode;
+    }
+
+    private BigDecimal zeroIfNull(BigDecimal value) {
+        return value != null ? value : BigDecimal.ZERO;
+    }
+
+    /**
+     * Blocks any mutation of a transaction whose ledger state or origin makes it unsafe to reverse:
+     * <ul>
+     *   <li>no ledger row for the sales date, or the row is not {@code LEDGER_ACTIVE = 'Y'} (settled / merged away)</li>
+     *   <li>rows owned by Farmer Account Check (cash paid, or settlement marker {@code SALES_IDS = '0'})</li>
+     * </ul>
+     * Sales Entry / Multi Sales Entry debit rows are editable: {@link #applyDelta} already moves the
+     * matching debit into BLOOMBUDDY_SALES_TOTALSUMMARY and BLOOMBUDDY_FARMER_LEDGER, so the sales
+     * screens and this screen stay in step in both directions.
+     */
+    private void assertMutable(FarmerTransaction txn, Connection conn) {
+        LocalDate date = txn.getTransactionDate();
+        FarmerLedger ledger = farmerLedgerDao.findRow(txn.getClientId(), txn.getFarmerId(), date, conn);
+
+        if (ledger == null) {
+            throw new IllegalArgumentException(
+                    "No farmer ledger entry exists for this date. The record cannot be edited or deleted.");
+        }
+
+        String active = ledger.getLedgerActive();
+        if (active == null || !"Y".equalsIgnoreCase(active.trim())) {
+            throw new IllegalArgumentException(
+                    "This transaction belongs to an inactive (settled) farmer ledger period and cannot be edited or deleted.");
+        }
+
+        if (txn.getCashPaidAmt() != null && txn.getCashPaidAmt().compareTo(BigDecimal.ZERO) > 0) {
+            throw new IllegalArgumentException(
+                    "This record was created by Farmer Account Check. Edit it from the Farmer Account Check screen.");
+        }
+
+        String salesIds = ledger.getSalesIds() != null ? ledger.getSalesIds().trim() : "";
+        if ("0".equals(salesIds)) {
+            throw new IllegalArgumentException(
+                    "This record belongs to a Farmer Account Check settlement and cannot be edited or deleted here.");
+        }
+    }
+
+    /**
+     * Moves the ledger and summary from the transaction's stored amounts to the supplied targets.
+     * Deletion passes both targets as {@code BigDecimal.ZERO}, which fully reverses both effects.
+     */
+    private void applyDelta(FarmerTransaction txn, BigDecimal newExcess, BigDecimal newDebit, Connection conn) {
+        Long clientId = txn.getClientId();
+        String farmerId = txn.getFarmerId();
+        LocalDate date = txn.getTransactionDate();
+
+        BigDecimal deltaExcess = zeroIfNull(newExcess).subtract(zeroIfNull(txn.getExcessDebitAmt()));
+        if (deltaExcess.compareTo(BigDecimal.ZERO) != 0) {
+            farmerLedgerDao.adjustDebitAmt(clientId, farmerId, date, deltaExcess, conn);
+        }
+
+        BigDecimal deltaDebit = zeroIfNull(newDebit).subtract(zeroIfNull(txn.getDebAmt()));
+        if (deltaDebit.compareTo(BigDecimal.ZERO) != 0) {
+            farmerLedgerDao.adjustCreditAmt(clientId, farmerId, date, deltaDebit.negate(), conn);
+
+            Map<String, Object> summaryRow = salesTotalSummaryDao.findRow(clientId, farmerId, date);
+            if (summaryRow != null) {
+                salesTotalSummaryDao.adjustDebit(clientId, farmerId, date, deltaDebit, conn);
+                // If the last sale on this date was already removed, a pure debit row can be left
+                // sitting at zero after an edit/delete; drop it so the report has no phantom entry.
+                Map<String, Object> after = salesTotalSummaryDao.findRow(clientId, farmerId, date);
+                if (isAllZeroSummary(after)) {
+                    salesTotalSummaryDao.deleteRow(clientId, farmerId, date, conn);
+                    logger.info("applyDelta: removed empty summary row for farmerId={}, date={}", farmerId, date);
+                }
+            } else if (zeroIfNull(newDebit).compareTo(BigDecimal.ZERO) > 0) {
+                insertDebitOnlySummary(clientId, txn.getClientUsername(), farmerId, txn.getFarmerName(), date,
+                        zeroIfNull(newDebit), conn);
+            }
+        }
+    }
+
+    /**
+     * Creates a summary row that carries only the farmer's debit for a date on which no sale has
+     * been recorded yet. Sales/commission/net are zero and {@code FINAL_AMT} is the negated debit,
+     * matching the {@code FINAL_AMT = TOTAL_NET_AMT - DEBIT_AMT} invariant. A later sale on the same
+     * date preserves this debit (see the sale save/recalc services) instead of overwriting it.
+     */
+    private void insertDebitOnlySummary(Long clientId, String clientUsername, String farmerId, String farmerName,
+                                        LocalDate date, BigDecimal debitAmount, Connection conn) {
+        BigDecimal debit = RoundOffUtil.round(debitAmount);
+        SalesTotalSummary summary = new SalesTotalSummary();
+        summary.setClientId(clientId);
+        summary.setClientUsername(clientUsername);
+        summary.setFarmerId(farmerId);
+        summary.setFarmerName(farmerName);
+        summary.setSalesDate(date);
+        summary.setTotalSalesAmt(BigDecimal.ZERO);
+        summary.setCommissionAmt(BigDecimal.ZERO);
+        summary.setTotalNetAmt(BigDecimal.ZERO);
+        summary.setDebitAmt(debit);
+        summary.setFinalAmt(RoundOffUtil.round(debit.negate()));
+        salesTotalSummaryDao.upsert(summary, conn);
+        logger.info("insertDebitOnlySummary: created debit-only summary for farmerId={}, date={}, debit={}",
+                farmerId, date, debit);
+    }
+
+    private boolean isAllZeroSummary(Map<String, Object> row) {
+        if (row == null) {
+            return false;
+        }
+        return isZeroAmount(row.get("totalSalesAmt"))
+                && isZeroAmount(row.get("commissionAmt"))
+                && isZeroAmount(row.get("totalNetAmt"))
+                && isZeroAmount(row.get("debitAmt"));
+    }
+
+    private boolean isZeroAmount(Object value) {
+        if (value == null) {
+            return true;
+        }
+        try {
+            return new BigDecimal(String.valueOf(value)).compareTo(BigDecimal.ZERO) == 0;
+        } catch (NumberFormatException e) {
+            return false;
+        }
+    }
+
+    @Override
+    public FarmerTransaction updateTransaction(Long farmerTransactionId, String excessDebitAmt, String debitAmt,
+                                               String paymentMode, Long clientId) {
+        logger.info("updateTransaction: farmerTransactionId={}, clientId={}, excessDebitAmt={}, debitAmt={}",
+                farmerTransactionId, clientId, excessDebitAmt, debitAmt);
+
+        if (farmerTransactionId == null) {
+            throw new IllegalArgumentException("Transaction id is required");
+        }
+
+        BigDecimal newExcess = parsePositiveAmount(excessDebitAmt, "Excess Debit Amount");
+        BigDecimal newDebit = parsePositiveAmount(debitAmt, "Debit Amount");
+        if (newExcess == null && newDebit == null) {
+            throw new IllegalArgumentException("Please enter either Excess Debit or Debit Amount to proceed.");
+        }
+        String normalizedMode = normalizeMode(paymentMode);
+
+        Connection conn = null;
+        try {
+            conn = dataSource.getConnection();
+            conn.setAutoCommit(false);
+
+            FarmerTransaction txn = farmerTransactionDao.findById(clientId, farmerTransactionId, conn);
+            if (txn == null) {
+                throw new IllegalArgumentException("Transaction not found");
+            }
+
+            assertMutable(txn, conn);
+            applyDelta(txn, newExcess, newDebit, conn);
+
+            int updated = farmerTransactionDao.updateAmounts(clientId, farmerTransactionId,
+                    zeroIfNull(newExcess), zeroIfNull(newDebit), normalizedMode, conn);
+            if (updated == 0) {
+                throw new IllegalArgumentException("Transaction not found");
+            }
+
+            ledgerSettlementService.settleFarmerIfClosed(clientId, txn.getFarmerId(), txn.getTransactionDate(), conn);
+
+            conn.commit();
+            logger.info("updateTransaction: committed, farmerTransactionId={}", farmerTransactionId);
+
+            txn.setExcessDebitAmt(zeroIfNull(newExcess));
+            txn.setDebAmt(zeroIfNull(newDebit));
+            txn.setPaymentMode(normalizedMode);
+            return txn;
+
+        } catch (Exception e) {
+            logger.error("updateTransaction: failed, rolling back", e);
+            rollbackQuietly(conn);
+            if (e instanceof IllegalArgumentException) {
+                throw (IllegalArgumentException) e;
+            }
+            if (e instanceof RuntimeException) {
+                throw (RuntimeException) e;
+            }
+            throw new RuntimeException("Failed to update farmer transaction", e);
+        } finally {
+            closeQuietly(conn);
+        }
+    }
+
+    @Override
+    public void deleteTransaction(Long farmerTransactionId, Long clientId) {
+        logger.info("deleteTransaction: farmerTransactionId={}, clientId={}", farmerTransactionId, clientId);
+
+        if (farmerTransactionId == null) {
+            throw new IllegalArgumentException("Transaction id is required");
+        }
+
+        Connection conn = null;
+        try {
+            conn = dataSource.getConnection();
+            conn.setAutoCommit(false);
+
+            FarmerTransaction txn = farmerTransactionDao.findById(clientId, farmerTransactionId, conn);
+            if (txn == null) {
+                throw new IllegalArgumentException("Transaction not found");
+            }
+
+            assertMutable(txn, conn);
+            applyDelta(txn, BigDecimal.ZERO, BigDecimal.ZERO, conn);
+
+            int deleted = farmerTransactionDao.deleteById(clientId, farmerTransactionId, conn);
+            if (deleted == 0) {
+                throw new IllegalArgumentException("Transaction not found");
+            }
+
+            farmerLedgerDao.deleteRowIfZero(clientId, txn.getFarmerId(), txn.getTransactionDate(), conn);
+            ledgerSettlementService.settleFarmerIfClosed(clientId, txn.getFarmerId(), txn.getTransactionDate(), conn);
+
+            conn.commit();
+            logger.info("deleteTransaction: committed, farmerTransactionId={}", farmerTransactionId);
+
+        } catch (Exception e) {
+            logger.error("deleteTransaction: failed, rolling back", e);
+            rollbackQuietly(conn);
+            if (e instanceof IllegalArgumentException) {
+                throw (IllegalArgumentException) e;
+            }
+            if (e instanceof RuntimeException) {
+                throw (RuntimeException) e;
+            }
+            throw new RuntimeException("Failed to delete farmer transaction", e);
+        } finally {
+            closeQuietly(conn);
+        }
+    }
+
+    private void rollbackQuietly(Connection conn) {
+        if (conn != null) {
+            try {
+                conn.rollback();
+            } catch (Exception rollbackEx) {
+                logger.error("rollback failed", rollbackEx);
+            }
+        }
+    }
+
+    private void closeQuietly(Connection conn) {
+        if (conn != null) {
+            try {
+                conn.close();
+            } catch (Exception closeEx) {
+                logger.error("close failed", closeEx);
+            }
+        }
     }
 }

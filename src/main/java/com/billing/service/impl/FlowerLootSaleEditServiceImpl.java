@@ -12,6 +12,7 @@ import com.billing.dto.FlowerLootSaleEditRequestDto;
 import com.billing.dto.FlowerLootSaleEditRowDto;
 import com.billing.entity.BuyerLedger;
 import com.billing.entity.FarmerLedger;
+import com.billing.service.FarmerCommissionConfigService;
 import com.billing.service.FlowerLootSaleEditService;
 import com.billing.service.LedgerSettlementService;
 import com.billing.util.RoundOffUtil;
@@ -32,6 +33,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -39,8 +41,6 @@ import java.util.stream.Collectors;
 public class FlowerLootSaleEditServiceImpl implements FlowerLootSaleEditService {
 
     private static final Logger logger = LoggerFactory.getLogger(FlowerLootSaleEditServiceImpl.class);
-
-    private static final BigDecimal TEN_PERCENT = new BigDecimal("0.10");
 
     private static final Set<String> DIRECT_PAYMENT_NAMES = new HashSet<>(java.util.Arrays.asList(
             "cash", "cash payment", "cash sale",
@@ -63,6 +63,7 @@ public class FlowerLootSaleEditServiceImpl implements FlowerLootSaleEditService 
     private final SalesTotalSummaryDao salesTotalSummaryDao;
     private final FlowerLootSaleEditDao flowerLootSaleEditDao;
     private final LedgerSettlementService ledgerSettlementService;
+    private final FarmerCommissionConfigService commissionConfigService;
 
     @Autowired
     public FlowerLootSaleEditServiceImpl(DataSource dataSource,
@@ -74,7 +75,8 @@ public class FlowerLootSaleEditServiceImpl implements FlowerLootSaleEditService 
                                          SalesEditDao salesEditDao,
                                          SalesTotalSummaryDao salesTotalSummaryDao,
                                          FlowerLootSaleEditDao flowerLootSaleEditDao,
-                                         LedgerSettlementService ledgerSettlementService) {
+                                         LedgerSettlementService ledgerSettlementService,
+                                         FarmerCommissionConfigService commissionConfigService) {
         this.dataSource = dataSource;
         this.farmerMasterDao = farmerMasterDao;
         this.flowerMasterDao = flowerMasterDao;
@@ -85,6 +87,7 @@ public class FlowerLootSaleEditServiceImpl implements FlowerLootSaleEditService 
         this.salesTotalSummaryDao = salesTotalSummaryDao;
         this.flowerLootSaleEditDao = flowerLootSaleEditDao;
         this.ledgerSettlementService = ledgerSettlementService;
+        this.commissionConfigService = commissionConfigService;
     }
 
     @Override
@@ -228,7 +231,11 @@ public class FlowerLootSaleEditServiceImpl implements FlowerLootSaleEditService 
                 String newCustomer = row.getName().trim();
                 boolean customerChanged = !newCustomer.equalsIgnoreCase(oldCustomerName);
 
-                if (delta.compareTo(BigDecimal.ZERO) == 0 && !customerChanged) {
+                Integer existingBagCount = existing.get("bagCount") != null ? (Integer) existing.get("bagCount") : null;
+                Integer newBagCount = parseBagCount(row.getBag());
+                boolean bagChanged = !Objects.equals(existingBagCount, newBagCount);
+
+                if (delta.compareTo(BigDecimal.ZERO) == 0 && !customerChanged && !bagChanged) {
                     logger.info("saveEdits: no change for buyer salesId={}, skipping", salesId);
                     continue;
                 }
@@ -238,7 +245,7 @@ public class FlowerLootSaleEditServiceImpl implements FlowerLootSaleEditService 
                 salesEditDao.updateSalesRow(salesId, clientId, flowerType,
                         weight, rate, newAmount,
                         existing.get("flowerId") != null ? String.valueOf(existing.get("flowerId")) : null,
-                        existing.get("bagCount") != null ? (Integer) existing.get("bagCount") : null,
+                        newBagCount,
                         conn);
 
                 if (customerChanged) {
@@ -262,15 +269,19 @@ public class FlowerLootSaleEditServiceImpl implements FlowerLootSaleEditService 
                             date, newAmount, salesId, conn);
                     ledgerSettlementService.settleBuyerIfClosed(clientId, newBuyerId, date, conn);
                 } else {
-                    boolean isDirect = isDirectPayment(oldCustomerName);
-                    BuyerDelta bd = buyerDeltas.computeIfAbsent(buyerId, k -> new BuyerDelta(oldCustomerName));
-                    if (isDirect) {
-                        bd.creditDelta = bd.creditDelta.add(delta);
+                    if (delta.compareTo(BigDecimal.ZERO) != 0) {
+                        boolean isDirect = isDirectPayment(oldCustomerName);
+                        BuyerDelta bd = buyerDeltas.computeIfAbsent(buyerId, k -> new BuyerDelta(oldCustomerName));
+                        if (isDirect) {
+                            bd.creditDelta = bd.creditDelta.add(delta);
+                        } else {
+                            bd.debitDelta = bd.debitDelta.add(delta);
+                        }
+                        logger.info("saveEdits: buyer ledger delta for buyerId={}, debitDelta={}, creditDelta={}",
+                                buyerId, bd.debitDelta, bd.creditDelta);
                     } else {
-                        bd.debitDelta = bd.debitDelta.add(delta);
+                        logger.info("saveEdits: no ledger delta for buyer salesId={} (non-financial change only)", salesId);
                     }
-                    logger.info("saveEdits: buyer ledger delta for buyerId={}, debitDelta={}, creditDelta={}",
-                            buyerId, bd.debitDelta, bd.creditDelta);
                 }
 
                 buyerChanges++;
@@ -336,7 +347,11 @@ public class FlowerLootSaleEditServiceImpl implements FlowerLootSaleEditService 
                     }
                 }
 
-                if (delta.compareTo(BigDecimal.ZERO) == 0 && !farmerChanged) {
+                Integer existingBagCount = existing.get("bagCount") != null ? (Integer) existing.get("bagCount") : null;
+                Integer newBagCount = parseBagCount(row.getBag());
+                boolean bagChanged = !Objects.equals(existingBagCount, newBagCount);
+
+                if (delta.compareTo(BigDecimal.ZERO) == 0 && !farmerChanged && !bagChanged) {
                     logger.info("saveEdits: no change for farmer salesId={}, skipping", salesId);
                     continue;
                 }
@@ -346,7 +361,7 @@ public class FlowerLootSaleEditServiceImpl implements FlowerLootSaleEditService 
                 salesEditDao.updateSalesRow(salesId, clientId, flowerType,
                         weight, rate, newAmount,
                         existing.get("flowerId") != null ? String.valueOf(existing.get("flowerId")) : null,
-                        existing.get("bagCount") != null ? (Integer) existing.get("bagCount") : null,
+                        newBagCount,
                         conn);
 
                 if (farmerChanged) {
@@ -496,6 +511,26 @@ public class FlowerLootSaleEditServiceImpl implements FlowerLootSaleEditService 
         }
 
         if (dayRows.isEmpty()) {
+            Map<String, Object> existingSummary = salesEditDao.fetchSummary(clientId, farmerId, date);
+            BigDecimal debit = BigDecimal.ZERO;
+            if (existingSummary != null && existingSummary.get("debitAmt") != null) {
+                debit = RoundOffUtil.round(toBigDecimal(existingSummary.get("debitAmt")));
+            }
+            if (debit.compareTo(BigDecimal.ZERO) > 0) {
+                salesEditDao.reconcileSummary(clientId, clientUsername, farmerId, farmerName, date,
+                        BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, debit,
+                        RoundOffUtil.round(debit.negate()), conn);
+                FarmerLedger ledgerRow = farmerLedgerDao.findRow(clientId, farmerId, date, conn);
+                if (ledgerRow != null) {
+                    farmerLedgerDao.setCreditAmt(clientId, clientUsername, farmerId, farmerName, date,
+                            RoundOffUtil.round(debit.negate()), conn);
+                    farmerLedgerDao.updateSalesIds(clientId, farmerId, date, null, conn);
+                }
+                ledgerSettlementService.settleFarmerIfClosed(clientId, farmerId, date, conn);
+                logger.info("recalcFarmerAggregate: no remaining FLS farmer rows for farmerId={}, date={}; kept debit-only summary debit={}",
+                        farmerId, date, debit);
+                return;
+            }
             salesTotalSummaryDao.deleteRow(clientId, farmerId, date, conn);
             FarmerLedger ledgerRow = farmerLedgerDao.findRow(clientId, farmerId, date, conn);
             if (ledgerRow != null) {
@@ -511,15 +546,24 @@ public class FlowerLootSaleEditServiceImpl implements FlowerLootSaleEditService 
         }
 
         String storedName = String.valueOf(dayRows.get(0).get("farmerName"));
-        BigDecimal commission = RoundOffUtil.round(total.multiply(TEN_PERCENT));
+        BigDecimal commission = RoundOffUtil.round(total.multiply(commissionConfigService.getCommissionPercent(clientId).movePointLeft(2)));
         BigDecimal net = total.subtract(commission);
 
+        // Preserve a debit already recorded for this farmer/date (Farmer Transaction) instead of
+        // resetting it to zero when the sale is edited.
+        BigDecimal debit = BigDecimal.ZERO;
+        Map<String, Object> summaryRow = salesEditDao.fetchSummary(clientId, farmerId, date);
+        if (summaryRow != null && summaryRow.get("debitAmt") != null) {
+            debit = RoundOffUtil.round(toBigDecimal(summaryRow.get("debitAmt")));
+        }
+        BigDecimal finalAmt = RoundOffUtil.round(net.subtract(debit));
+
         salesEditDao.reconcileSummary(clientId, clientUsername, farmerId, storedName,
-                date, total, commission, net, BigDecimal.ZERO, net, conn);
+                date, total, commission, net, debit, finalAmt, conn);
 
         FarmerLedger ledgerRow = farmerLedgerDao.findRow(clientId, farmerId, date, conn);
         if (ledgerRow != null) {
-            farmerLedgerDao.setCreditAmt(clientId, clientUsername, farmerId, storedName, date, net, conn);
+            farmerLedgerDao.setCreditAmt(clientId, clientUsername, farmerId, storedName, date, finalAmt, conn);
         } else {
             FarmerLedger freshLedger = new FarmerLedger();
             freshLedger.setClientId(clientId);
@@ -528,7 +572,7 @@ public class FlowerLootSaleEditServiceImpl implements FlowerLootSaleEditService 
             freshLedger.setFarmerName(storedName);
             freshLedger.setSalesDate(date);
             freshLedger.setDebitAmt(BigDecimal.ZERO);
-            freshLedger.setCreditAmt(net);
+            freshLedger.setCreditAmt(finalAmt);
             farmerLedgerDao.insert(freshLedger, conn);
         }
         farmerLedgerDao.updateSalesIds(clientId, farmerId, date, String.join(",", salesIds), conn);
@@ -612,6 +656,12 @@ public class FlowerLootSaleEditServiceImpl implements FlowerLootSaleEditService 
         if (isBlank(row.getAmount()) || !SalesUtil.isDecimal(row.getAmount().trim())) {
             throw new IllegalArgumentException("Amount must be a valid decimal number in each " + lower + " row");
         }
+        if (isBlank(row.getBag()) || !row.getBag().trim().matches("\\d+")) {
+            throw new IllegalArgumentException("Bag must be a valid whole number in each " + lower + " row");
+        }
+        if (Integer.parseInt(row.getBag().trim()) <= 0) {
+            throw new IllegalArgumentException("Bag must be greater than zero in each " + lower + " row");
+        }
         if (new BigDecimal(row.getAmount().trim()).compareTo(BigDecimal.ZERO) <= 0) {
             throw new IllegalArgumentException("Amount must be greater than zero in each " + lower + " row");
         }
@@ -660,6 +710,13 @@ public class FlowerLootSaleEditServiceImpl implements FlowerLootSaleEditService 
 
     private BigDecimal parseAmount(String value) {
         return RoundOffUtil.round(new BigDecimal(value.trim()));
+    }
+
+    private Integer parseBagCount(String value) {
+        if (isBlank(value)) {
+            return null;
+        }
+        return Integer.valueOf(value.trim());
     }
 
     private BigDecimal parseDecimal(String value) {

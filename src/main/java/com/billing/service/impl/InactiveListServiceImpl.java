@@ -3,6 +3,7 @@ package com.billing.service.impl;
 import com.billing.dao.InactiveListDao;
 import com.billing.service.InactiveListService;
 import com.billing.util.RoundOffUtil;
+import com.billing.util.SalesUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -33,7 +34,7 @@ public class InactiveListServiceImpl implements InactiveListService {
     @Override
     public List<Map<String, Object>> getInactiveFarmers(Long clientId) {
         logger.info("getInactiveFarmers: clientId={}", clientId);
-        List<Map<String, Object>> rows = inactiveListDao.findInactiveFarmers(clientId, LocalDate.now());
+        List<Map<String, Object>> rows = inactiveListDao.findInactiveFarmers(clientId, SalesUtil.today());
         for (Map<String, Object> row : rows) {
             row.put("outstandingBalance", toAmount(row.get("outstandingBalance")));
         }
@@ -43,7 +44,7 @@ public class InactiveListServiceImpl implements InactiveListService {
     @Override
     public List<Map<String, Object>> getInactiveBuyers(Long clientId) {
         logger.info("getInactiveBuyers: clientId={}", clientId);
-        List<Map<String, Object>> rows = inactiveListDao.findInactiveBuyers(clientId, LocalDate.now());
+        List<Map<String, Object>> rows = inactiveListDao.findInactiveBuyers(clientId, SalesUtil.today());
         List<Map<String, Object>> filtered = new ArrayList<>();
         for (Map<String, Object> row : rows) {
             String buyerName = row.get("buyerName") == null ? "" : row.get("buyerName").toString().toLowerCase(Locale.ROOT);

@@ -2,6 +2,7 @@ package com.billing.dao.impl;
 
 import com.billing.dao.FarmerSalesReportDao;
 import com.billing.util.RoundOffUtil;
+import com.billing.util.SalesUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Repository;
@@ -34,14 +35,16 @@ public class FarmerSalesReportDaoImpl implements FarmerSalesReportDao {
     private static final String SELECT_RANGE_SALES_SQL =
             "SELECT FARMER_ID, FARMER_NAME, SALES_DATE, FLOWER_TYPE, TOTAL_WEIGHT, PERKG_RATE, PRICE, CUST_NAME " +
             "FROM BLOOMBUDDY_SALES " +
-            "WHERE CLIENT_ID = ? AND CLIENT_USERNAME = ? AND SALES_DATE BETWEEN ? AND ? " +
-            "ORDER BY SALES_DATE ASC";
+            "WHERE CLIENT_ID = ? AND CLIENT_USERNAME = ? AND SALES_DATE BETWEEN ? AND ?" +
+            SalesUtil.FARMER_SIDE_FILTER +
+            " ORDER BY SALES_DATE ASC";
 
     private static final String SELECT_TODAY_SALES_SQL =
             "SELECT FARMER_ID, FARMER_NAME, SALES_DATE, FLOWER_TYPE, TOTAL_WEIGHT, PERKG_RATE, PRICE, CUST_NAME " +
             "FROM BLOOMBUDDY_SALES " +
-            "WHERE CLIENT_ID = ? AND CLIENT_USERNAME = ? AND SALES_DATE = ? " +
-            "ORDER BY SALES_DATE ASC";
+            "WHERE CLIENT_ID = ? AND CLIENT_USERNAME = ? AND SALES_DATE = ?" +
+            SalesUtil.FARMER_SIDE_FILTER +
+            " ORDER BY SALES_DATE ASC";
 
     private final DataSource dataSource;
 
@@ -103,7 +106,7 @@ public class FarmerSalesReportDaoImpl implements FarmerSalesReportDao {
              PreparedStatement ps = conn.prepareStatement(SELECT_TODAY_SALES_SQL)) {
             ps.setLong(1, clientId);
             ps.setString(2, clientUsername);
-            ps.setDate(3, java.sql.Date.valueOf(LocalDate.now()));
+            ps.setDate(3, java.sql.Date.valueOf(SalesUtil.today()));
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     rows.add(mapSalesRow(rs));

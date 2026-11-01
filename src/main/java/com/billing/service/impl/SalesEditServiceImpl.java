@@ -4,6 +4,7 @@ import com.billing.dao.BuyerLedgerDao;
 import com.billing.dao.BuyerMasterDao;
 import com.billing.dao.FarmerLedgerDao;
 import com.billing.dao.FarmerMasterDao;
+import com.billing.dao.FarmerTransactionDao;
 import com.billing.dao.FlowerMasterDao;
 import com.billing.dao.SalesEditDao;
 import com.billing.dao.SalesTotalSummaryDao;
@@ -13,6 +14,7 @@ import com.billing.dto.SalesEditRowDto;
 import com.billing.entity.BuyerLedger;
 import com.billing.entity.FarmerLedger;
 import com.billing.service.BagCountConfigService;
+import com.billing.service.FarmerCommissionConfigService;
 import com.billing.service.LedgerSettlementService;
 import com.billing.service.SalesEditService;
 import com.billing.util.RoundOffUtil;
@@ -41,8 +43,6 @@ public class SalesEditServiceImpl implements SalesEditService {
 
     private static final Logger logger = LoggerFactory.getLogger(SalesEditServiceImpl.class);
 
-    private static final BigDecimal TEN_PERCENT = new BigDecimal("0.10");
-
     private static final Set<String> DIRECT_PAYMENT_NAMES = new HashSet<>(java.util.Arrays.asList(
             "cash", "cash payment", "cash sale",
             "upi", "upi payment",
@@ -62,8 +62,10 @@ public class SalesEditServiceImpl implements SalesEditService {
     private final BuyerMasterDao buyerMasterDao;
     private final SalesTotalSummaryDao salesTotalSummaryDao;
     private final SalesEditDao salesEditDao;
+    private final FarmerTransactionDao farmerTransactionDao;
     private final LedgerSettlementService ledgerSettlementService;
     private final BagCountConfigService bagCountConfigService;
+    private final FarmerCommissionConfigService commissionConfigService;
 
     @Autowired
     public SalesEditServiceImpl(DataSource dataSource,
@@ -74,8 +76,10 @@ public class SalesEditServiceImpl implements SalesEditService {
                                 BuyerMasterDao buyerMasterDao,
                                 SalesTotalSummaryDao salesTotalSummaryDao,
                                 SalesEditDao salesEditDao,
+                                FarmerTransactionDao farmerTransactionDao,
                                 LedgerSettlementService ledgerSettlementService,
-                                BagCountConfigService bagCountConfigService) {
+                                BagCountConfigService bagCountConfigService,
+                                FarmerCommissionConfigService commissionConfigService) {
         this.dataSource = dataSource;
         this.farmerMasterDao = farmerMasterDao;
         this.flowerMasterDao = flowerMasterDao;
@@ -84,8 +88,10 @@ public class SalesEditServiceImpl implements SalesEditService {
         this.buyerMasterDao = buyerMasterDao;
         this.salesTotalSummaryDao = salesTotalSummaryDao;
         this.salesEditDao = salesEditDao;
+        this.farmerTransactionDao = farmerTransactionDao;
         this.ledgerSettlementService = ledgerSettlementService;
         this.bagCountConfigService = bagCountConfigService;
+        this.commissionConfigService = commissionConfigService;
     }
 
     @Override
@@ -309,7 +315,7 @@ public class SalesEditServiceImpl implements SalesEditService {
                 }
 
                 BigDecimal newTotal = submittedTotal;
-                BigDecimal newCommission = RoundOffUtil.round(newTotal.multiply(TEN_PERCENT));
+                BigDecimal newCommission = RoundOffUtil.round(newTotal.multiply(commissionConfigService.getCommissionPercent(clientId).movePointLeft(2)));
                 BigDecimal newNet = newTotal.subtract(newCommission);
                 BigDecimal newDebit = debitEdited ? parseDebitAmount(request.getDebitAmount()) : oldDebit;
                 BigDecimal newFinal = newNet.subtract(newDebit);
@@ -317,6 +323,11 @@ public class SalesEditServiceImpl implements SalesEditService {
                 salesEditDao.reconcileSummary(clientId, clientUsername, farmerId,
                         request.getFarmerName().trim(), date, newTotal, newCommission,
                         newNet, newDebit, newFinal, conn);
+
+                if (debitEdited) {
+                    syncFarmerTransactionDebit(clientId, clientUsername, farmerId,
+                            request.getFarmerName().trim(), date, newDebit, conn);
+                }
 
                 if (ledgerRow != null) {
                     farmerLedgerDao.setCreditAmt(clientId, clientUsername, farmerId,
@@ -447,13 +458,15 @@ public class SalesEditServiceImpl implements SalesEditService {
             if (remainingRows.isEmpty()) {
                 // No remaining entries for this farmer+date -> remove the summary row entirely
                 salesTotalSummaryDao.deleteRow(clientId, farmerId, salesDate, conn);
+                syncFarmerTransactionDebit(clientId, clientUsername, farmerId, farmerName,
+                        salesDate, BigDecimal.ZERO, conn);
                 if (farmerLedger != null) {
                     farmerLedgerDao.setCreditAmt(clientId, clientUsername, farmerId, farmerName,
                             salesDate, BigDecimal.ZERO, conn);
                     farmerLedgerDao.deleteRowIfZero(clientId, farmerId, salesDate, conn);
                 }
             } else {
-                BigDecimal newCommission = RoundOffUtil.round(recomputedTotal.multiply(TEN_PERCENT));
+                BigDecimal newCommission = RoundOffUtil.round(recomputedTotal.multiply(commissionConfigService.getCommissionPercent(clientId).movePointLeft(2)));
                 BigDecimal newNet = recomputedTotal.subtract(newCommission);
                 Map<String, Object> summaryRow = salesEditDao.fetchSummary(clientId, farmerId, salesDate);
                 BigDecimal newDebit = BigDecimal.ZERO;
@@ -625,6 +638,22 @@ public class SalesEditServiceImpl implements SalesEditService {
         if (summaryDate != null) {
             salesTotalSummaryDao.adjustDebit(clientId, farmerId, summaryDate, debitDelta, conn);
         }
+
+        syncFarmerTransactionDebit(clientId, clientUsername, farmerId, farmerName, date, newDebit, conn);
+    }
+
+    /**
+     * Keeps BLOOMBUDDY_FARMER_TRANSACTION.DEB_AMT in lock-step with the sales-side debit so the
+     * Farmer Transaction screen always shows the same value that was edited on the Sales Edit screen.
+     * Any existing debit rows for the farmer+date are replaced by a single row holding the new total.
+     */
+    private void syncFarmerTransactionDebit(Long clientId, String clientUsername, String farmerId,
+                                            String farmerName, LocalDate date, BigDecimal newTotalDebit,
+                                            Connection conn) {
+        logger.info("syncFarmerTransactionDebit: farmerId={}, date={}, newTotalDebit={}",
+                farmerId, date, newTotalDebit);
+        farmerTransactionDao.setTotalDebitForDate(clientId, clientUsername, farmerId, farmerName,
+                date, newTotalDebit, conn);
     }
 
     private void validateEditedBagCount(Long clientId, LocalDate date, String farmerId,

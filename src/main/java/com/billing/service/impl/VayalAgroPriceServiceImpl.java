@@ -3,6 +3,7 @@ package com.billing.service.impl;
 import com.billing.dto.FlowerPriceRow;
 import com.billing.dto.VayalAgroPriceData;
 import com.billing.service.VayalAgroPriceService;
+import com.billing.util.SalesUtil;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.URLEncoder;
@@ -41,7 +42,7 @@ public class VayalAgroPriceServiceImpl implements VayalAgroPriceService {
 
     @Override
     public VayalAgroPriceData getSalemFlowerPrices() {
-        LocalDate date = LocalDate.now();
+        LocalDate date = SalesUtil.today();
         for (int attempt = 0; attempt < MAX_BACKDATE_DAYS; attempt++) {
             List<FlowerPriceRow> rows = fetchAllPages(MARKET_ID, MARKET_PLACE_ID, date.toString());
             if (!rows.isEmpty()) {
@@ -49,7 +50,7 @@ public class VayalAgroPriceServiceImpl implements VayalAgroPriceService {
             }
             date = date.minusDays(1);
         }
-        return new VayalAgroPriceData(LocalDate.now().toString(), List.of());
+        return new VayalAgroPriceData(SalesUtil.today().toString(), List.of());
     }
 
     @Override

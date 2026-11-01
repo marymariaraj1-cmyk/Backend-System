@@ -109,6 +109,10 @@ public class FarmerLedgerDaoImpl implements FarmerLedgerDao {
             "UPDATE BLOOMBUDDY_FARMER_LEDGER SET CREDIT_AMT = CREDIT_AMT + ? "
                     + "WHERE CLIENT_ID = ? AND FARMER_ID = ? AND SALES_DATE = ? AND LEDGER_ACTIVE = 'Y'";
 
+    private static final String ADJUST_DEBIT_SQL =
+            "UPDATE BLOOMBUDDY_FARMER_LEDGER SET DEBIT_AMT = DEBIT_AMT + ? "
+                    + "WHERE CLIENT_ID = ? AND FARMER_ID = ? AND SALES_DATE = ? AND LEDGER_ACTIVE = 'Y'";
+
     private static final String FIND_SALES_IDS_SQL =
             "SELECT SALES_IDS "
                     + "FROM BLOOMBUDDY_FARMER_LEDGER "
@@ -323,6 +327,22 @@ public class FarmerLedgerDaoImpl implements FarmerLedgerDao {
         } catch (SQLException e) {
             logger.error("adjustCreditAmt: SQL exception while adjusting farmer ledger credit", e);
             throw new RuntimeException("Failed to adjust farmer ledger credit", e);
+        }
+    }
+
+    @Override
+    public void adjustDebitAmt(Long clientId, String farmerId, LocalDate date, BigDecimal amount, Connection conn) {
+        logger.info("adjustDebitAmt: clientId={}, farmerId={}, date={}, amount={}", clientId, farmerId, date, amount);
+        try (PreparedStatement ps = conn.prepareStatement(ADJUST_DEBIT_SQL)) {
+            ps.setBigDecimal(1, amount);
+            ps.setLong(2, clientId);
+            ps.setString(3, farmerId);
+            ps.setDate(4, java.sql.Date.valueOf(date));
+            int updated = ps.executeUpdate();
+            logger.info("adjustDebitAmt: updated rows={}", updated);
+        } catch (SQLException e) {
+            logger.error("adjustDebitAmt: SQL exception while adjusting farmer ledger debit", e);
+            throw new RuntimeException("Failed to adjust farmer ledger debit", e);
         }
     }
 

@@ -31,6 +31,8 @@ public interface FarmerLedgerDao {
 
     void adjustCreditAmt(Long clientId, String farmerId, LocalDate date, BigDecimal amount, Connection conn);
 
+    void adjustDebitAmt(Long clientId, String farmerId, LocalDate date, BigDecimal amount, Connection conn);
+
     void setCreditAmt(Long clientId, String clientUsername, String farmerId, String farmerName,
                       LocalDate date, BigDecimal amount, Connection conn);
 

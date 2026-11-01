@@ -1,19 +1,12 @@
 package com.billing.dto;
 
-import java.math.BigDecimal;
+import java.util.List;
 
 public class DailyCashBookSaveRequest {
 
     private String bookDate;
-    private BigDecimal rentAmt;
-    private BigDecimal expenseAmt;
-    private BigDecimal chitAmt;
-    private BigDecimal financeAmt;
-    private BigDecimal noteAmt;
-    private BigDecimal salaryAmt;
-    private BigDecimal coinAmt;
-    private BigDecimal cashInHandAmt;
-    private BigDecimal openingBalance;
+    private List<ManualAmountEntry> manualDebitEntries;
+    private List<ManualAmountEntry> manualCreditEntries;
     private String remarks;
 
     public DailyCashBookSaveRequest() {
@@ -27,76 +20,20 @@ public class DailyCashBookSaveRequest {
         this.bookDate = bookDate;
     }
 
-    public BigDecimal getRentAmt() {
-        return rentAmt;
+    public List<ManualAmountEntry> getManualDebitEntries() {
+        return manualDebitEntries;
     }
 
-    public void setRentAmt(BigDecimal rentAmt) {
-        this.rentAmt = rentAmt;
+    public void setManualDebitEntries(List<ManualAmountEntry> manualDebitEntries) {
+        this.manualDebitEntries = manualDebitEntries;
     }
 
-    public BigDecimal getExpenseAmt() {
-        return expenseAmt;
+    public List<ManualAmountEntry> getManualCreditEntries() {
+        return manualCreditEntries;
     }
 
-    public void setExpenseAmt(BigDecimal expenseAmt) {
-        this.expenseAmt = expenseAmt;
-    }
-
-    public BigDecimal getChitAmt() {
-        return chitAmt;
-    }
-
-    public void setChitAmt(BigDecimal chitAmt) {
-        this.chitAmt = chitAmt;
-    }
-
-    public BigDecimal getFinanceAmt() {
-        return financeAmt;
-    }
-
-    public void setFinanceAmt(BigDecimal financeAmt) {
-        this.financeAmt = financeAmt;
-    }
-
-    public BigDecimal getNoteAmt() {
-        return noteAmt;
-    }
-
-    public void setNoteAmt(BigDecimal noteAmt) {
-        this.noteAmt = noteAmt;
-    }
-
-    public BigDecimal getSalaryAmt() {
-        return salaryAmt;
-    }
-
-    public void setSalaryAmt(BigDecimal salaryAmt) {
-        this.salaryAmt = salaryAmt;
-    }
-
-    public BigDecimal getCoinAmt() {
-        return coinAmt;
-    }
-
-    public void setCoinAmt(BigDecimal coinAmt) {
-        this.coinAmt = coinAmt;
-    }
-
-    public BigDecimal getCashInHandAmt() {
-        return cashInHandAmt;
-    }
-
-    public void setCashInHandAmt(BigDecimal cashInHandAmt) {
-        this.cashInHandAmt = cashInHandAmt;
-    }
-
-    public BigDecimal getOpeningBalance() {
-        return openingBalance;
-    }
-
-    public void setOpeningBalance(BigDecimal openingBalance) {
-        this.openingBalance = openingBalance;
+    public void setManualCreditEntries(List<ManualAmountEntry> manualCreditEntries) {
+        this.manualCreditEntries = manualCreditEntries;
     }
 
     public String getRemarks() {

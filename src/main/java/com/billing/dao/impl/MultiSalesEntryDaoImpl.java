@@ -2,6 +2,7 @@ package com.billing.dao.impl;
 
 import com.billing.dao.MultiSalesEntryDao;
 import com.billing.entity.Sales;
+import com.billing.util.SalesRecordType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,7 +22,10 @@ public class MultiSalesEntryDaoImpl implements MultiSalesEntryDao {
     private static final String SELECT_BY_DATE_SQL =
             "SELECT SALES_ID, CLIENT_ID, CLIENT_USERNAME, FARMER_ID, FARMER_NAME, SALES_DATE, "
                     + "FLOWER_TYPE, TOTAL_WEIGHT, PRICE, BUYER_ID, PERKG_RATE, CUST_NAME, DEBIT_CREDIT_FLAG, SALE_SLOT_ID, FLOWER_ID, BAG_COUNT "
-                    + "FROM BLOOMBUDDY_SALES WHERE CLIENT_ID = ? AND SALES_DATE = ? ORDER BY SALES_ID ASC";
+                    + "FROM BLOOMBUDDY_SALES WHERE CLIENT_ID = ? AND SALES_DATE = ? "
+                    + "AND (CUST_NAME IS NULL OR CUST_NAME <> '" + SalesRecordType.FLOWER_INTAKE_SALE_MARKER + "') "
+                    + "AND (FARMER_NAME IS NULL OR FARMER_NAME <> '" + SalesRecordType.BUYER_DIRECT_SALE_MARKER + "') "
+                    + "ORDER BY SALES_ID ASC";
 
     private static final String INSERT_SQL =
             "INSERT INTO BLOOMBUDDY_SALES (CLIENT_ID, CLIENT_USERNAME, FARMER_ID, FARMER_NAME, SALES_DATE, "

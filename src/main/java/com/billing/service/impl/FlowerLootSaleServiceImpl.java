@@ -13,6 +13,7 @@ import com.billing.entity.BuyerLedger;
 import com.billing.entity.FarmerLedger;
 import com.billing.entity.Sales;
 import com.billing.entity.SalesTotalSummary;
+import com.billing.service.FarmerCommissionConfigService;
 import com.billing.service.FlowerLootSaleService;
 import com.billing.service.LedgerSettlementService;
 import com.billing.util.RoundOffUtil;
@@ -63,6 +64,7 @@ public class FlowerLootSaleServiceImpl implements FlowerLootSaleService {
     private final ClientSlotSequenceDao clientSlotSequenceDao;
     private final SalesTotalSummaryDao salesTotalSummaryDao;
     private final LedgerSettlementService ledgerSettlementService;
+    private final FarmerCommissionConfigService commissionConfigService;
 
     @Autowired
     public FlowerLootSaleServiceImpl(DataSource dataSource,
@@ -74,7 +76,8 @@ public class FlowerLootSaleServiceImpl implements FlowerLootSaleService {
                                      BuyerLedgerDao buyerLedgerDao,
                                      ClientSlotSequenceDao clientSlotSequenceDao,
                                      SalesTotalSummaryDao salesTotalSummaryDao,
-                                     LedgerSettlementService ledgerSettlementService) {
+                                     LedgerSettlementService ledgerSettlementService,
+                                     FarmerCommissionConfigService commissionConfigService) {
         this.dataSource = dataSource;
         this.salesDao = salesDao;
         this.farmerMasterDao = farmerMasterDao;
@@ -85,6 +88,7 @@ public class FlowerLootSaleServiceImpl implements FlowerLootSaleService {
         this.clientSlotSequenceDao = clientSlotSequenceDao;
         this.salesTotalSummaryDao = salesTotalSummaryDao;
         this.ledgerSettlementService = ledgerSettlementService;
+        this.commissionConfigService = commissionConfigService;
     }
 
     @Override
@@ -158,7 +162,8 @@ public class FlowerLootSaleServiceImpl implements FlowerLootSaleService {
         BigDecimal grandTotal = farmerEntities.stream()
                 .map(Sales::getPrice)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
-        BigDecimal commission = RoundOffUtil.round(grandTotal.multiply(new BigDecimal("0.10")));
+        BigDecimal commissionRate = commissionConfigService.getCommissionPercent(clientId).movePointLeft(2);
+        BigDecimal commission = RoundOffUtil.round(grandTotal.multiply(commissionRate));
 
         Connection conn = null;
         try {

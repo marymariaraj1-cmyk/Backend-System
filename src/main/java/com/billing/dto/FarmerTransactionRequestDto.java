@@ -2,11 +2,20 @@ package com.billing.dto;
 
 public class FarmerTransactionRequestDto {
 
+    private Long farmerTransactionId;
     private String farmerName;
     private String transactionDate;
     private String excessDebitAmt;
     private String debitAmt;
     private String paymentMode;
+
+    public Long getFarmerTransactionId() {
+        return farmerTransactionId;
+    }
+
+    public void setFarmerTransactionId(Long farmerTransactionId) {
+        this.farmerTransactionId = farmerTransactionId;
+    }
 
     public String getFarmerName() {
         return farmerName;

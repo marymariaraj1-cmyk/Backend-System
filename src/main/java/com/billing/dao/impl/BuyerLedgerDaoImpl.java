@@ -125,6 +125,10 @@ public class BuyerLedgerDaoImpl implements BuyerLedgerDao {
             "UPDATE BLOOMBUDDY_BUYER_LEDGER SET DIS_AMT = COALESCE(DIS_AMT, 0) + ? "
                     + "WHERE CLIENT_ID = ? AND BUYER_ID = ? AND SALES_DATE = ? AND LEDGER_ACTIVE = 'Y'";
 
+    private static final String ADJUST_DEBIT_SQL =
+            "UPDATE BLOOMBUDDY_BUYER_LEDGER SET DEBIT_AMT = DEBIT_AMT + ? "
+                    + "WHERE CLIENT_ID = ? AND BUYER_ID = ? AND SALES_DATE = ? AND LEDGER_ACTIVE = 'Y'";
+
     private static final String OPENING_BALANCE_SQL =
             "SELECT COALESCE(SUM(DEBIT_AMT), 0) - COALESCE(SUM(CREDIT_AMT), 0) AS OPENING_BALANCE "
                     + "FROM BLOOMBUDDY_BUYER_LEDGER "
@@ -387,6 +391,22 @@ public class BuyerLedgerDaoImpl implements BuyerLedgerDao {
         } catch (SQLException e) {
             logger.error("addDiscountAmt: SQL exception while updating buyer ledger", e);
             throw new RuntimeException("Failed to add discount amount to buyer ledger", e);
+        }
+    }
+
+    @Override
+    public void adjustDebitAmt(Long clientId, String buyerId, LocalDate date, BigDecimal amount, Connection conn) {
+        logger.info("adjustDebitAmt: clientId={}, buyerId={}, date={}, amount={}", clientId, buyerId, date, amount);
+        try (PreparedStatement ps = conn.prepareStatement(ADJUST_DEBIT_SQL)) {
+            ps.setBigDecimal(1, amount);
+            ps.setLong(2, clientId);
+            ps.setString(3, buyerId);
+            ps.setDate(4, java.sql.Date.valueOf(date));
+            int updated = ps.executeUpdate();
+            logger.info("adjustDebitAmt: updated rows={}", updated);
+        } catch (SQLException e) {
+            logger.error("adjustDebitAmt: SQL exception while adjusting buyer ledger debit", e);
+            throw new RuntimeException("Failed to adjust buyer ledger debit", e);
         }
     }
 

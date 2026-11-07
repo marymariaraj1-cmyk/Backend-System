@@ -274,7 +274,7 @@ public class CashBookFieldConfigServiceImpl implements CashBookFieldConfigServic
             message.append(" It has saved amounts on past entries.");
         }
         message.append(" Set the amount to 0 or blank and save on the Daily Cash Book first.");
-        message.append(" Past dates cannot be edited, so a field with saved amounts on a past date cannot be deleted.");
+        message.append(" Past dates can be edited after clicking Recalculate Live Data on the Daily Cash Book.");
         return message.toString();
     }
 

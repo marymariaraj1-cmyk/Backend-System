@@ -104,9 +104,12 @@ public class DailyCashBookServiceImpl implements DailyCashBookService {
         } catch (Exception e) {
             throw new IllegalArgumentException("Book date must be yyyy-MM-dd");
         }
-        if (!bookDate.equals(SalesUtil.today())) {
-            throw new IllegalArgumentException("Only today's cash book can be saved");
+        if (bookDate.isAfter(SalesUtil.today())) {
+            throw new IllegalArgumentException("Future-dated cash books cannot be saved");
         }
+        // Past dates are allowed to be saved after the user explicitly
+        // recalculates the live data from the UI. The system values are always
+        // re-snapshotted here, never taken from the client payload.
         logger.info("saveBook: clientId={}, bookDate={}", clientId, bookDate);
 
         // Snapshot live system values at save time — never trust client-supplied block totals.

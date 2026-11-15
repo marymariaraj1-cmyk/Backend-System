@@ -58,6 +58,21 @@ public class DailyCashBookController {
         }
     }
 
+    @GetMapping("/details")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> details(@RequestParam String bookDate) {
+        Long clientId = SessionConfig.getCurrentClientId();
+        String shopName = SessionConfig.getCurrentShopName();
+        try {
+            LocalDate date = SalesUtil.parseDate(bookDate);
+            Map<String, Object> details = dailyCashBookService.computeDetails(clientId, date);
+            details.put("shopName", shopName);
+            return ResponseEntity.ok(ApiResponse.success("OK", details));
+        } catch (Exception e) {
+            logger.error("details: error", e);
+            return ResponseEntity.status(500).body(ApiResponse.error("Failed to calculate daily cash book details"));
+        }
+    }
+
     @PostMapping("/save")
     public ResponseEntity<ApiResponse<Map<String, Object>>> save(@RequestBody DailyCashBookSaveRequest request) {
         Long clientId = SessionConfig.getCurrentClientId();

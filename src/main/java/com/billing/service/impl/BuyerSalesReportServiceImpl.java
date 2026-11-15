@@ -113,7 +113,7 @@ public class BuyerSalesReportServiceImpl implements BuyerSalesReportService {
             Map<String, Object> buyerRow = new LinkedHashMap<>();
             buyerRow.put("buyerId", buyerId);
             buyerRow.put("buyerName", buyerName);
-            buyerRow.put("totalWeight", RoundOffUtil.round((BigDecimal) summary.get("totalWeight")));
+            buyerRow.put("totalWeight", summary.get("totalWeight"));
             buyerRow.put("discount", RoundOffUtil.round(discountByBuyer.getOrDefault(buyerId, BigDecimal.ZERO)));
             buyerRow.put("totalAmount", RoundOffUtil.round((BigDecimal) summary.get("totalAmount")));
             buyerRow.put("items", itemsByBuyer.getOrDefault(buyerId, new java.util.ArrayList<>()));

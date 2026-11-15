@@ -32,7 +32,7 @@ public class Sales {
     @Column(name = "FLOWER_TYPE", length = 50)
     private String flowerType;
 
-    @Column(name = "TOTAL_WEIGHT", precision = 10, scale = 2)
+    @Column(name = "TOTAL_WEIGHT", precision = 11, scale = 3)
     private BigDecimal totalWeight;
 
     @Column(name = "PRICE", precision = 10, scale = 2)

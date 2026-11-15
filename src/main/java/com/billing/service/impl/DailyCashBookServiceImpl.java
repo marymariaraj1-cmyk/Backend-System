@@ -61,6 +61,50 @@ public class DailyCashBookServiceImpl implements DailyCashBookService {
     }
 
     @Override
+    public Map<String, Object> computeDetails(Long clientId, LocalDate bookDate) {
+        logger.info("computeDetails: clientId={}, bookDate={}", clientId, bookDate);
+        List<Map<String, Object>> buyerPurchaseList = dailyCashBookDao.findBuyerPurchaseBreakdown(clientId, bookDate);
+        List<Map<String, Object>> buyerReceivedList = dailyCashBookDao.findBuyerReceivedBreakdown(clientId, bookDate);
+        List<Map<String, Object>> commissionList = dailyCashBookDao.findCommissionBreakdown(clientId, bookDate);
+        List<Map<String, Object>> installmentList = dailyCashBookDao.findInstallmentBreakdown(clientId, bookDate);
+
+        BigDecimal buyerPurchaseTotal = BigDecimal.ZERO;
+        for (Map<String, Object> row : buyerPurchaseList) {
+            buyerPurchaseTotal = buyerPurchaseTotal.add((BigDecimal) row.get("amount"));
+        }
+        buyerPurchaseTotal = RoundOffUtil.round(buyerPurchaseTotal);
+
+        BigDecimal buyerReceivedTotal = BigDecimal.ZERO;
+        for (Map<String, Object> row : buyerReceivedList) {
+            buyerReceivedTotal = buyerReceivedTotal.add((BigDecimal) row.get("amount"));
+        }
+        buyerReceivedTotal = RoundOffUtil.round(buyerReceivedTotal);
+
+        BigDecimal commissionTotal = BigDecimal.ZERO;
+        for (Map<String, Object> row : commissionList) {
+            commissionTotal = commissionTotal.add((BigDecimal) row.get("amount"));
+        }
+        commissionTotal = RoundOffUtil.round(commissionTotal);
+
+        BigDecimal installmentTotal = BigDecimal.ZERO;
+        for (Map<String, Object> row : installmentList) {
+            installmentTotal = installmentTotal.add((BigDecimal) row.get("amount"));
+        }
+        installmentTotal = RoundOffUtil.round(installmentTotal);
+
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("buyerPurchaseList", buyerPurchaseList);
+        details.put("buyerPurchaseTotal", buyerPurchaseTotal);
+        details.put("buyerReceivedList", buyerReceivedList);
+        details.put("buyerReceivedTotal", buyerReceivedTotal);
+        details.put("commissionList", commissionList);
+        details.put("commissionTotal", commissionTotal);
+        details.put("installmentList", installmentList);
+        details.put("installmentTotal", installmentTotal);
+        return details;
+    }
+
+    @Override
     public Map<String, Object> loadBook(Long clientId, LocalDate bookDate) {
         logger.info("loadBook: clientId={}, bookDate={}", clientId, bookDate);
         Map<String, Object> header = dailyCashBookDao.findHeaderByClientAndDate(clientId, bookDate);

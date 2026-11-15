@@ -10,6 +10,13 @@ public interface DailyCashBookService {
     /** Live system-calculated blocks for a date (Blocks 1–6). */
     Map<String, Object> computeBlocks(Long clientId, LocalDate bookDate);
 
+    /**
+     * Per-party breakdowns for the auto-calculated cash book fields, so the UI can
+     * open a popup and show how Balance / Commission / Installment were calculated:
+     * buyer purchase list (for Balance), farmer commission list and farmer installment list.
+     */
+    Map<String, Object> computeDetails(Long clientId, LocalDate bookDate);
+
     /** Saved snapshot (header + details) for a date, or null when never saved. */
     Map<String, Object> loadBook(Long clientId, LocalDate bookDate);
 

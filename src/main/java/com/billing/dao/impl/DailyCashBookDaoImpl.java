@@ -40,6 +40,12 @@ public class DailyCashBookDaoImpl implements DailyCashBookDao {
             "SELECT COALESCE(SUM(CASH_PAID_AMT), 0) AS TOTAL FROM BLOOMBUDDY_BUYER_TRANSACTION " +
             "WHERE CLIENT_ID = ? AND TRANSACTION_DATE = ? AND PAYMENT_MODE = 'C'";
 
+    private static final String BUYER_RECEIVED_BREAKDOWN_SQL =
+            "SELECT BUYER_NAME, COALESCE(SUM(CASH_PAID_AMT), 0) AS TOTAL " +
+            "FROM BLOOMBUDDY_BUYER_TRANSACTION " +
+            "WHERE CLIENT_ID = ? AND TRANSACTION_DATE = ? AND PAYMENT_MODE = 'C' " +
+            "GROUP BY BUYER_NAME ORDER BY BUYER_NAME ASC";
+
     private static final String COMMISSION_TOTAL_SQL =
             "SELECT COALESCE(SUM(COMMISSION_AMT), 0) AS TOTAL FROM BLOOMBUDDY_SALES_TOTALSUMMARY " +
             "WHERE CLIENT_ID = ? AND SALES_DATE = ?";
@@ -47,6 +53,25 @@ public class DailyCashBookDaoImpl implements DailyCashBookDao {
     private static final String INSTALLMENT_TOTAL_SQL =
             "SELECT COALESCE(SUM(FINAL_AMT), 0) AS TOTAL FROM BLOOMBUDDY_SALES_TOTALSUMMARY " +
             "WHERE CLIENT_ID = ? AND SALES_DATE = ?";
+
+    private static final String BUYER_PURCHASE_BREAKDOWN_SQL =
+            "SELECT CUST_NAME AS BUYER_NAME, COALESCE(SUM(PRICE), 0) AS TOTAL " +
+            "FROM BLOOMBUDDY_SALES " +
+            "WHERE CLIENT_ID = ? AND SALES_DATE = ? " +
+            "AND BUYER_ID IS NOT NULL AND CUST_NAME IS NOT NULL AND LOWER(CUST_NAME) NOT LIKE '%cash%' " +
+            "GROUP BY CUST_NAME ORDER BY CUST_NAME ASC";
+
+    private static final String COMMISSION_BREAKDOWN_SQL =
+            "SELECT FARMER_NAME, COALESCE(SUM(COMMISSION_AMT), 0) AS TOTAL " +
+            "FROM BLOOMBUDDY_SALES_TOTALSUMMARY " +
+            "WHERE CLIENT_ID = ? AND SALES_DATE = ? " +
+            "GROUP BY FARMER_NAME ORDER BY FARMER_NAME ASC";
+
+    private static final String INSTALLMENT_BREAKDOWN_SQL =
+            "SELECT FARMER_NAME, COALESCE(SUM(FINAL_AMT), 0) AS TOTAL " +
+            "FROM BLOOMBUDDY_SALES_TOTALSUMMARY " +
+            "WHERE CLIENT_ID = ? AND SALES_DATE = ? " +
+            "GROUP BY FARMER_NAME ORDER BY FARMER_NAME ASC";
 
     private static final String FIND_HEADER_SQL =
             "SELECT DAILY_CASH_BOOK_ID, CLIENT_ID, CLIENT_USERNAME, BOOK_DATE, " +
@@ -124,6 +149,64 @@ public class DailyCashBookDaoImpl implements DailyCashBookDao {
     @Override
     public List<Map<String, Object>> findFarmerExcessDebitNonCashList(Long clientId, LocalDate bookDate) {
         return findFarmerExcessDebitList(clientId, bookDate, "PAYMENT_MODE <> 'C'");
+    }
+
+    @Override
+    public List<Map<String, Object>> findBuyerPurchaseBreakdown(Long clientId, LocalDate bookDate) {
+        List<Map<String, Object>> results = new ArrayList<>();
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement ps = conn.prepareStatement(BUYER_PURCHASE_BREAKDOWN_SQL)) {
+            ps.setLong(1, clientId);
+            ps.setDate(2, java.sql.Date.valueOf(bookDate));
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    Map<String, Object> row = new LinkedHashMap<>();
+                    row.put("name", rs.getString("BUYER_NAME"));
+                    row.put("amount", RoundOffUtil.round(rs.getBigDecimal("TOTAL")));
+                    results.add(row);
+                }
+            }
+        } catch (SQLException e) {
+            logger.error("DailyCashBook findBuyerPurchaseBreakdown: SQL exception", e);
+            throw new RuntimeException("Failed to fetch buyer purchase breakdown", e);
+        }
+        return results;
+    }
+
+    @Override
+    public List<Map<String, Object>> findBuyerReceivedBreakdown(Long clientId, LocalDate bookDate) {
+        return runPartyBreakdown(BUYER_RECEIVED_BREAKDOWN_SQL, "BUYER_NAME", clientId, bookDate);
+    }
+
+    @Override
+    public List<Map<String, Object>> findCommissionBreakdown(Long clientId, LocalDate bookDate) {
+        return runPartyBreakdown(COMMISSION_BREAKDOWN_SQL, "FARMER_NAME", clientId, bookDate);
+    }
+
+    @Override
+    public List<Map<String, Object>> findInstallmentBreakdown(Long clientId, LocalDate bookDate) {
+        return runPartyBreakdown(INSTALLMENT_BREAKDOWN_SQL, "FARMER_NAME", clientId, bookDate);
+    }
+
+    private List<Map<String, Object>> runPartyBreakdown(String sql, String nameColumn, Long clientId, LocalDate bookDate) {
+        List<Map<String, Object>> results = new ArrayList<>();
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setLong(1, clientId);
+            ps.setDate(2, java.sql.Date.valueOf(bookDate));
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    Map<String, Object> row = new LinkedHashMap<>();
+                    row.put("name", rs.getString(nameColumn));
+                    row.put("amount", RoundOffUtil.round(rs.getBigDecimal("TOTAL")));
+                    results.add(row);
+                }
+            }
+        } catch (SQLException e) {
+            logger.error("DailyCashBook runPartyBreakdown: SQL exception", e);
+            throw new RuntimeException("Failed to fetch party breakdown", e);
+        }
+        return results;
     }
 
     private BigDecimal querySingleTotal(String sql, Long clientId, LocalDate bookDate, String op) {

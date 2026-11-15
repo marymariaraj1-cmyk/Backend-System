@@ -28,6 +28,20 @@ public interface DailyCashBookDao {
     /** BLOCK 6 — per-farmer excess-debit totals via non-cash modes (record only). */
     List<Map<String, Object>> findFarmerExcessDebitNonCashList(Long clientId, LocalDate bookDate);
 
+    // ---------- Auto-calculated field breakdowns (for popup drill-down) ----------
+
+    /** Per-buyer purchase breakdown for the day (used by Balance popup). */
+    List<Map<String, Object>> findBuyerPurchaseBreakdown(Long clientId, LocalDate bookDate);
+
+    /** Per-buyer cash-received breakdown for the day (used by Credit Balance popup). */
+    List<Map<String, Object>> findBuyerReceivedBreakdown(Long clientId, LocalDate bookDate);
+
+    /** Per-farmer commission breakdown for the day (used by Commission popup). */
+    List<Map<String, Object>> findCommissionBreakdown(Long clientId, LocalDate bookDate);
+
+    /** Per-farmer installment breakdown for the day (used by Installment popup). */
+    List<Map<String, Object>> findInstallmentBreakdown(Long clientId, LocalDate bookDate);
+
     // ---------- Saved snapshot ----------
 
     Map<String, Object> findHeaderByClientAndDate(Long clientId, LocalDate bookDate);
